@@ -182,7 +182,7 @@ export const ops: Op[] = [
   }),
   op({
     name: "update_venue", title: "Update venue",
-    description: "Change fields of a venue; calendar entries of events there are refreshed.",
+    description: "Change fields of a venue; calendar entries of events there are refreshed. A different `name` here only CORRECTS the current name (a typo). If the venue was really renamed, use rename_venue with the date it changed.",
     input: z.object({ venueId: id, changes: nullablePartial(VenueInput) }),
     run: (s, c, i) => s.updateVenue(c, i.venueId, i.changes),
   }),
@@ -207,8 +207,23 @@ export const ops: Op[] = [
   op({
     name: "merge_venues", title: "Merge venues", destructive: true,
     description: "Move all events from one venue to another and delete the first (for duplicates created by scraping).",
-    input: z.object({ fromVenueId: id, intoVenueId: id }),
-    run: (s, c, i) => s.mergeVenues(c, i.fromVenueId, i.intoVenueId),
+    input: z.object({
+      fromVenueId: id, intoVenueId: id,
+      nameChangedOn: DateStr.optional().describe("Day the surviving venue's name (intoVenueId) started being used, when the two are the same place under an old and a new name. The merged-away venue's name then applies before that day and is kept in the venue's name history. Omit if unknown: old names stay searchable but shows display the surviving name."),
+    }),
+    run: (s, c, i) => s.mergeVenues(c, i.fromVenueId, i.intoVenueId, i.nameChangedOn),
+  }),
+  op({
+    name: "rename_venue", title: "Rename venue",
+    description: "Record that a venue changed its name. effectiveFrom is the day the new name actually started (not the day you found out): shows on or after it display the new name, earlier shows keep the old one, and filtering by venue still returns all of its shows. Old names stay matchable, so an event sent with the old name still resolves to this venue. Use this instead of retire_venue + create_venue; retire_venue is only for venues that closed.",
+    input: z.object({ venueId: id, name: z.string().min(1).describe("The new name"), effectiveFrom: DateStr.describe("YYYY-MM-DD the new name started applying (required)") }),
+    run: (s, c, i) => s.renameVenue(c, i.venueId, i.name, i.effectiveFrom),
+  }),
+  op({
+    name: "remove_venue_name", title: "Remove venue name", destructive: true,
+    description: "Remove a name from a venue's name history (recorded by mistake). The venue keeps at least one name.",
+    input: z.object({ venueId: id, name: z.string().min(1) }),
+    run: (s, c, i) => s.removeVenueName(c, i.venueId, i.name),
   }),
 
   // ---- stats

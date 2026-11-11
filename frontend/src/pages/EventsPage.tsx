@@ -1,3 +1,4 @@
+import { venueNames } from "../history";
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { op } from "../api";
 import { EventCard } from "../components/EventCard";
@@ -64,7 +65,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
       if (tab === "interested" && !(e.rsvp?.status === "interested" && e.date >= today)) return false;
       if (tab === "past" && e.date >= today) return false;
       if (venueId && e.venueId !== venueId) return false;
-      if (needle && !norm([e.title, e.genre, e.venue?.name, e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" ")).includes(needle)) return false;
+      if (needle && !norm([e.title, e.genre, ...venueNames(e.venue), e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" ")).includes(needle)) return false;
       return true;
     });
   }, [events, tab, q, venueId, today]);

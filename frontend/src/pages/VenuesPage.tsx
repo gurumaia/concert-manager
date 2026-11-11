@@ -56,6 +56,9 @@ export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () 
 function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; others: VenueRow[]; onDone: () => void; onError: (m: string) => void }) {
   const [d, setD] = useState<Record<Field, string>>(() => Object.fromEntries(FIELDS.map(([k]) => [k, venue?.[k] !== undefined ? String(venue[k]) : ""])) as Record<Field, string>);
   const [mergeInto, setMergeInto] = useState("");
+  const [mergeDate, setMergeDate] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newFrom, setNewFrom] = useState("");
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -86,6 +89,38 @@ function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; other
           <input required={k === "name"} {...(k === "capacity" ? { inputMode: "numeric" as const } : {})} value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} />
         </label>
       ))}
+      {venue && (
+        <fieldset className="names">
+          <legend>Names <span className="muted small">· each show displays the name it had on its date</span></legend>
+          <ul>
+            {(venue.names ?? [{ name: venue.name }]).map((n, i) => (
+              <li key={`${n.name}-${n.from ?? i}`} className="row">
+                <span>{n.name} <span className="muted small">{n.from ? `since ${n.from}` : "original name"}</span></span>
+                {(venue.names?.length ?? 1) > 1 && (
+                  <button type="button" className="btn" disabled={busy} aria-label={`Remove name ${n.name}`}
+                    onClick={async () => {
+                      if (!confirm(`Remove the name "${n.name}" from this venue?`)) return;
+                      setBusy(true); setErr(undefined);
+                      try { await op("remove_venue_name", { venueId: venue.id, name: n.name }); onDone(); }
+                      catch (e) { setErr((e as Error).message); setBusy(false); }
+                    }}>Remove</button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            <input aria-label="New name" placeholder="Renamed to…" value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <input aria-label="Name used since" type="date" value={newFrom} onChange={(e) => setNewFrom(e.target.value)} />
+            <button type="button" className="btn" disabled={busy || !newName.trim() || !newFrom}
+              onClick={async () => {
+                setBusy(true); setErr(undefined);
+                try { await op("rename_venue", { venueId: venue.id, name: newName.trim(), effectiveFrom: newFrom }); onDone(); }
+                catch (e) { setErr((e as Error).message); setBusy(false); }
+              }}>Add rename</button>
+          </div>
+          <p className="muted small">The date is the day the new name actually started, not when you found out. Editing the Name field above only corrects a typo.</p>
+        </fieldset>
+      )}
       {err && <p role="alert" className="error">{err}</p>}
       <div className="actions spread">
         {venue ? (
@@ -100,12 +135,17 @@ function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; other
               <option value="">Merge into…</option>
               {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
+            {mergeInto && (
+              <label className="muted small">Name of the venue you merge into used since
+                <input type="date" aria-label="Surviving name used since" value={mergeDate} onChange={(e) => setMergeDate(e.target.value)} />
+              </label>
+            )}
             <button type="button" className="btn danger" disabled={!mergeInto && venue.eventCount > 0}
               onClick={async () => {
                 const label = mergeInto ? "Move its shows to the selected venue and delete this one?" : "Delete this venue?";
                 if (!confirm(label)) return;
                 try {
-                  if (mergeInto) await op("merge_venues", { fromVenueId: venue.id, intoVenueId: mergeInto });
+                  if (mergeInto) await op("merge_venues", { fromVenueId: venue.id, intoVenueId: mergeInto, ...(mergeDate ? { nameChangedOn: mergeDate } : {}) });
                   else await op("delete_venue", { venueId: venue.id });
                   onDone();
                 } catch (e) { onError((e as Error).message); setErr((e as Error).message); }

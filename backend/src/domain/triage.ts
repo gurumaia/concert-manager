@@ -33,7 +33,7 @@ export function matchesFilters(e: TriageEvent, f: Pick<TriageFilters, "genre" | 
   if (f.venueId && e.venueId !== f.venueId) return false;
   if (f.genre && norm(e.genre?.trim() ?? "") !== norm(f.genre.trim())) return false;
   if (f.text) {
-    const hay = norm([e.title, e.genre, e.venue?.name, e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
+    const hay = norm([e.title, e.genre, ...(e.venue?.names?.map((n) => n.name) ?? [e.venue?.name]), e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
     if (!hay.includes(norm(f.text.trim()))) return false;
   }
   return true;

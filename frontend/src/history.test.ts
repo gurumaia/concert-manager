@@ -92,3 +92,20 @@ describe("who I went with", () => {
     expect(suggestPeople(people, "", ["Bruno"], 2)).toEqual(["Ana", "Joana"]);
   });
 });
+
+describe("renamed venues", () => {
+  const mk = (id: string, date: string, shown: string) => ({
+    id: `e${date}`, title: "T", date, venueId: id,
+    venue: { id, name: shown, currentName: "Vibra São Paulo", names: [{ name: "Credicard Hall" }, { name: "Vibra São Paulo", from: "2020-01-01" }], createdAt: "", updatedAt: "" },
+    rsvp: null,
+  }) as unknown as EventView;
+  const events = [mk("v1", "2012-01-01", "Credicard Hall"), mk("v1", "2023-01-01", "Vibra São Paulo")];
+  it("counts one venue under its latest name", () => {
+    expect(summarize(events).topVenues).toEqual([{ name: "Vibra São Paulo", count: 2 }]);
+    expect(summarize(events).venues).toBe(1);
+  });
+  it("search finds a show by any name the venue has had", () => {
+    expect(matches(events[1]!, "credicard")).toBe(true);
+    expect(matches(events[0]!, "vibra")).toBe(true);
+  });
+});

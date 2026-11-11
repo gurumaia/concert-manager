@@ -6,6 +6,9 @@ export function headliner(e: Pick<EventView, "title" | "lineup">): string {
   return (acts.find((a) => a.role === "headliner") ?? acts[0])?.name ?? e.title;
 }
 
+/** All names a venue has had, so a search for the old name finds shows under the new one. */
+export const venueNames = (v?: EventView["venue"]): string[] => (v ? (v.names?.length ? v.names.map((n) => n.name) : [v.name]) : []);
+
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 export type Ranked = { name: string; count: number };
@@ -47,7 +50,15 @@ export function summarize(events: EventView[]): History {
   const years: YearCount[] = [];
   if (ys.length) for (let y = Math.min(...ys); y <= Math.max(...ys); y++) years.push({ year: y, count: perYear.get(y) ?? 0 });
   const artists = rank(events.map(headliner));
-  const venues = rank(events.flatMap((e) => (e.venue ? [e.venue.name] : [])));
+  // One entry per venue id, labelled with its latest name, so renamed or merged venues count together.
+  const byVenue = new Map<string, Ranked>();
+  for (const e of events) {
+    if (!e.venue) continue;
+    const key = e.venueId ?? e.venue.id;
+    const r = byVenue.get(key);
+    if (r) r.count++; else byVenue.set(key, { name: e.venue.currentName ?? e.venue.name, count: 1 });
+  }
+  const venues = [...byVenue.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   return { total: events.length, years, venues: venues.length, artists: artists.length, spent, topArtists: artists.slice(0, 5), topVenues: venues.slice(0, 5) };
 }
 
@@ -55,7 +66,7 @@ export function summarize(events: EventView[]): History {
 export function matches(e: EventView, text: string): boolean {
   const needle = fold(text);
   if (!needle) return true;
-  const hay = fold([e.title, e.genre, e.venue?.name, e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
+  const hay = fold([e.title, e.genre, ...venueNames(e.venue), e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
   return hay.includes(needle);
 }
 

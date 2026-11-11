@@ -19,6 +19,7 @@ import type {
   UserProfile,
   Venue,
   VenueInput,
+  VenueName,
 } from "./schemas.js";
 import type { Encryptor } from "../infra/crypto.js";
 
@@ -81,6 +82,23 @@ const GENERIC_VENUE_WORDS = new Set([
 const coreTokens = (s: string) =>
   norm(s).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t && !GENERIC_VENUE_WORDS.has(t));
 
+/** A venue's names oldest first (undated = oldest); equal dates keep their stored order. */
+/** Every name a venue has had, for text search (undefined venue = nothing). */
+export const venueText = (v?: Venue | null): string[] => (v ? venueNames(v).map((n) => n.name) : []);
+export const venueNames = (v: Venue): VenueName[] =>
+  (v.names?.length ? v.names : [{ name: v.name }])
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => (a.n.from ?? "").localeCompare(b.n.from ?? "") || a.i - b.i)
+    .map((x) => x.n);
+/** The name in effect on `date`; before the first dated name, the oldest one. */
+export const nameAt = (v: Venue, date: string): string => {
+  const all = venueNames(v);
+  let cur = all[0]!;
+  for (const n of all) if (!n.from || n.from <= date) cur = n;
+  return cur.name;
+};
+const sameName = (v: Venue, n: string) => venueNames(v).some((x) => norm(x.name) === norm(n));
+
 /** Stands in for the id of a venue that is about to be created. */
 const NEW_VENUE = "\u0000new-venue";
 
@@ -132,13 +150,73 @@ export class Service {
   async updateVenue(ctx: Ctx, id: string, patch: Patch<VenueInput>): Promise<Venue> {
     const v = await this.mustVenue(ctx, id);
     if (patch.name === null) throw new AppError("invalid", "A venue needs a name");
-    const next = { ...applyPatch(v, patch), id, updatedAt: this.now() } as Venue;
+    let next = { ...applyPatch(v, patch), id, updatedAt: this.now() } as Venue;
+    // Changing `name` here corrects the name in effect today (a typo, say). A real rename needs its date: use renameVenue.
+    if (patch.name && v.names?.length && norm(patch.name) !== norm(this.currentName(v))) {
+      const cur = this.currentEntry(v);
+      next = { ...next, names: v.names.map((n) => (n === cur ? { ...n, name: patch.name! } : n)) };
+    }
+    next = this.syncCurrent(next);
+    await this.assertNameFree(ctx, next, id);
     await this.repo.putVenue(ctx.userId, next);
     await this.resyncEventsOfVenue(ctx, id);
-    return next;
+    return this.present(next);
   }
 
-  async getVenue(ctx: Ctx, id: string) { return this.mustVenue(ctx, id); }
+  async getVenue(ctx: Ctx, id: string) { return this.present(await this.mustVenue(ctx, id)); }
+
+  private currentEntry(v: Venue): VenueName {
+    const today = this.todayAt(v);
+    const all = venueNames(v);
+    let cur = all[0]!;
+    for (const n of all) if (!n.from || n.from <= today) cur = n;
+    return v.names?.find((n) => n.name === cur.name && n.from === cur.from) ?? cur;
+  }
+  private currentName = (v: Venue) => nameAt(v, this.todayAt(v));
+  /** Keep the stored `name` equal to the name in effect today. */
+  private syncCurrent(v: Venue): Venue { return { ...v, name: this.currentName(v) }; }
+  /** What callers see: the current name, plus the full history. */
+  private present(v: Venue): Venue & { names: VenueName[] } { return { ...v, name: this.currentName(v), names: venueNames(v) }; }
+
+  /** No two venues may share a name (past or present) in the same city. */
+  private async assertNameFree(ctx: Ctx, v: Venue, selfId?: string) {
+    const others = (await this.repo.listVenues(ctx.userId)).filter((o) => o.id !== selfId);
+    for (const n of venueNames(v)) {
+      const clash = others.find((o) => sameName(o, n.name) && (!v.city || !o.city || norm(v.city) === norm(o.city)));
+      if (clash) throw new AppError("conflict", `"${n.name}" is already a name of venue "${clash.name}" (id ${clash.id}). Use merge_venues if they are the same place.`);
+    }
+  }
+
+  /**
+   * Record that a venue was renamed. `effectiveFrom` is the day the new name started applying (not the day we found out): shows
+   * on or after it display the new name, earlier shows keep the old one. Same date as an existing entry replaces its name.
+   */
+  async renameVenue(ctx: Ctx, id: string, name: string, effectiveFrom: string): Promise<Venue> {
+    const v = await this.mustVenue(ctx, id);
+    const trimmed = name.trim();
+    if (!trimmed) throw new AppError("invalid", "A venue needs a name");
+    const names = venueNames(v).filter((n) => n.from !== effectiveFrom);
+    const next = this.syncCurrent({ ...v, names: [...names, { name: trimmed, from: effectiveFrom }], updatedAt: this.now() });
+    next.names = venueNames(next);
+    await this.assertNameFree(ctx, next, id);
+    await this.repo.putVenue(ctx.userId, next);
+    await this.resyncEventsOfVenue(ctx, id);
+    return this.present(next);
+  }
+
+  /** Drop a name from a venue's history (it was recorded by mistake). The venue always keeps at least one name. */
+  async removeVenueName(ctx: Ctx, id: string, name: string): Promise<Venue> {
+    const v = await this.mustVenue(ctx, id);
+    const kept = venueNames(v).filter((n) => norm(n.name) !== norm(name));
+    if (kept.length === venueNames(v).length) throw new AppError("not_found", `Venue has no name "${name}"`);
+    if (!kept.length) throw new AppError("invalid", "A venue needs at least one name");
+    // If the oldest name goes, the next one now covers all earlier dates: drop its start date so no show is left without a name.
+    if (kept[0]!.from) kept[0] = { name: kept[0]!.name };
+    const next = this.syncCurrent({ ...v, names: kept, updatedAt: this.now() });
+    await this.repo.putVenue(ctx.userId, next);
+    await this.resyncEventsOfVenue(ctx, id);
+    return this.present(next);
+  }
 
   /** Retired venues are hidden unless includeRetired is set. */
   async listVenues(ctx: Ctx, opts: { text?: string; includeRetired?: boolean } = {}) {
@@ -148,28 +226,28 @@ export class Service {
     const q = opts.text ? norm(opts.text) : undefined;
     return venues
       .filter((v) => opts.includeRetired || !v.retiredAt)
-      .filter((v) => !q || norm([v.name, v.city, v.address].filter(Boolean).join(" ")).includes(q))
-      .map((v) => ({ ...v, eventCount: counts.get(v.id) ?? 0 }))
+      .filter((v) => !q || norm([...venueNames(v).map((n) => n.name), v.city, v.address].filter(Boolean).join(" ")).includes(q))
+      .map((v) => ({ ...this.present(v), eventCount: counts.get(v.id) ?? 0 }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** Mark a venue as closed. Its events, RSVPs and stats are untouched. */
   async retireVenue(ctx: Ctx, id: string): Promise<Venue> {
     const v = await this.mustVenue(ctx, id);
-    if (v.retiredAt) return v;
+    if (v.retiredAt) return this.present(v);
     const next = { ...v, retiredAt: this.now(), updatedAt: this.now() };
     await this.repo.putVenue(ctx.userId, next);
-    return next;
+    return this.present(next);
   }
 
   /** Bring a retired venue back (it reopened, or was retired by mistake). */
   async unretireVenue(ctx: Ctx, id: string): Promise<Venue> {
     const v = await this.mustVenue(ctx, id);
-    if (!v.retiredAt) return v;
+    if (!v.retiredAt) return this.present(v);
     const { retiredAt: _r, ...rest } = v;
     const next = { ...rest, updatedAt: this.now() };
     await this.repo.putVenue(ctx.userId, next);
-    return next;
+    return this.present(next);
   }
 
   async deleteVenue(ctx: Ctx, id: string) {
@@ -181,21 +259,31 @@ export class Service {
   }
 
   /** Move all events of `fromId` to `intoId` and delete `fromId`. */
-  async mergeVenues(ctx: Ctx, fromId: string, intoId: string) {
+  async mergeVenues(ctx: Ctx, fromId: string, intoId: string, nameChangedOn?: string) {
     if (fromId === intoId) throw new AppError("invalid", "fromId and intoId are the same venue");
-    await this.mustVenue(ctx, fromId);
+    const source = await this.mustVenue(ctx, fromId);
     const target = await this.mustVenue(ctx, intoId);
     if (target.retiredAt) throw new AppError("invalid", `Venue "${target.name}" is retired; unretire it before merging into it.`);
     const events = (await this.repo.listEvents(ctx.userId)).filter((e) => e.venueId === fromId);
+    // Keep the names of the venue going away. With `nameChangedOn`, the surviving venue's own name started that day, so the
+    // old names cover the time before it; without it the old names stay searchable but shows display the surviving name.
+    const mine = venueNames(target);
+    if (nameChangedOn) {
+      if (mine[0]!.from) throw new AppError("invalid", `"${mine[0]!.name}" already has a start date (${mine[0]!.from}); use rename_venue to change it.`);
+      mine[0] = { ...mine[0]!, from: nameChangedOn };
+    }
+    const old = venueNames(source).filter((n) => !mine.some((m) => norm(m.name) === norm(n.name)));
+    const merged = this.syncCurrent({ ...target, names: venueNames({ ...target, names: [...old, ...mine] }), updatedAt: this.now() });
+    if (merged.names!.length === 1) delete merged.names;
     for (const e of events) await this.repo.putEvent(ctx.userId, { ...e, venueId: intoId, updatedAt: this.now() });
+    await this.repo.putVenue(ctx.userId, merged);
     await this.repo.deleteVenue(ctx.userId, fromId);
     await this.resyncEventsOfVenue(ctx, intoId);
     return { moved: events.length, into: intoId };
   }
 
   private async findVenueByName(ctx: Ctx, name: string, city?: string) {
-    const n = norm(name);
-    const matches = (await this.repo.listVenues(ctx.userId)).filter((v) => norm(v.name) === n);
+    const matches = (await this.repo.listVenues(ctx.userId)).filter((v) => sameName(v, name));
     if (matches.length <= 1) return matches[0];
     return matches.find((v) => city && v.city && norm(v.city) === norm(city)) ?? matches[0];
   }
@@ -209,8 +297,7 @@ export class Service {
   /** Closest existing venue for a name: exact (ignoring case/accents) first, then a unique "same core name" match. */
   private async matchVenue(ctx: Ctx, name: string, city?: string): Promise<{ venue: Venue; how: "exact" | "similar" } | undefined> {
     const venues = await this.repo.listVenues(ctx.userId);
-    const n = norm(name);
-    const exact = venues.filter((v) => norm(v.name) === n);
+    const exact = venues.filter((v) => sameName(v, name));
     if (exact.length) {
       return { venue: exact.find((v) => city && v.city && norm(v.city) === norm(city)) ?? exact[0]!, how: "exact" };
     }
@@ -218,10 +305,12 @@ export class Service {
     if (!core.length) return undefined;
     const similar = venues.filter((v) => {
       if (city && v.city && norm(v.city) !== norm(city)) return false; // different city: a different venue
-      const other = coreTokens(v.name);
-      if (!other.length) return false;
-      const [small, big] = core.length <= other.length ? [core, other] : [other, core];
-      return small.every((t) => big.includes(t));
+      return venueNames(v).some((vn) => {
+        const other = coreTokens(vn.name);
+        if (!other.length) return false;
+        const [small, big] = core.length <= other.length ? [core, other] : [other, core];
+        return small.every((t) => big.includes(t));
+      });
     });
     if (similar.length > 1) {
       throw new AppError(
@@ -399,7 +488,8 @@ export class Service {
   private toView(e: ShowEvent, venue: Venue | null, rsvp: Rsvp | null, today: (v?: Venue) => string): EventView {
     const r = rsvp && rsvp.status === "attended" ? { ...rsvp, status: "going" as const } : rsvp;
     const past = e.date < today(venue ?? undefined);
-    return { ...e, venue, rsvp: r, past, attended: past && r?.status === "going" };
+    // The venue shows the name it had on the day of the show; `currentName` and `names` cover the rest of its history.
+    return { ...e, venue: venue ? { ...venue, name: nameAt(venue, e.date), currentName: nameAt(venue, today(venue)), names: venueNames(venue) } : null, rsvp: r, past, attended: past && r?.status === "going" };
   }
 
   /** Save (or, with no songs, remove) the setlist one act played. Manual setlists are never replaced by lookups. */
@@ -521,7 +611,7 @@ export class Service {
       if (f.rsvp === "going" && !(e.rsvp?.status === "going" && !e.past)) return false;
       if (f.rsvp && f.rsvp !== "none" && f.rsvp !== "any" && f.rsvp !== "attended" && f.rsvp !== "going" && e.rsvp?.status !== f.rsvp) return false;
       if (q) {
-        const hay = norm([e.title, e.genre, e.venue?.name, e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
+        const hay = norm([e.title, e.genre, ...venueText(e.venue), e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -638,6 +728,7 @@ export class Service {
   // ------------------------------------------------------------------ stats
   async stats(ctx: Ctx, opts: { year?: number } = {}) {
     const { events } = await this.listEvents(ctx, { limit: 100000 });
+    const venueById = new Map((await this.repo.listVenues(ctx.userId)).map((v) => [v.id, v]));
     const attended = events.filter((e) => e.attended && (!opts.year || e.date.startsWith(String(opts.year))));
     const byVenue = new Map<string, { venueId: string | null; venue: string; city?: string; count: number }>();
     const byYear: Record<string, number> = {};
@@ -646,6 +737,8 @@ export class Service {
       const key = e.venueId ?? "none";
       const row = byVenue.get(key) ?? { venueId: e.venueId ?? null, venue: e.venue?.name ?? "(no venue)", city: e.venue?.city, count: 0 };
       row.count++;
+      const vv = e.venueId ? venueById.get(e.venueId) : undefined;
+      if (vv) row.venue = this.currentName(vv); // one row per venue, under its current name
       byVenue.set(key, row);
       byYear[e.date.slice(0, 4)] = (byYear[e.date.slice(0, 4)] ?? 0) + 1;
       const cur = e.currency ?? "BRL";
@@ -792,7 +885,7 @@ export class Service {
         return rsvp.calendarEventId ? await this.removeFromCalendar(ctx, rsvp, u) : { status: "skipped" };
       }
       const venue = event.venueId ? await this.repo.getVenue(ctx.userId, event.venueId) : undefined;
-      const body = buildCalendarEvent(event, rsvp, venue, ctx.userId, ctx.baseUrl ?? this.d.appUrl);
+      const body = buildCalendarEvent(event, rsvp, venue && { ...venue, name: nameAt(venue, event.date) }, ctx.userId, ctx.baseUrl ?? this.d.appUrl);
       const calendarId = u.calendar.calendarId;
       // Calendar changed since the last push: the old entry was removed by calendarSelect.
       const existing = rsvp.calendarId === calendarId ? rsvp.calendarEventId : undefined;

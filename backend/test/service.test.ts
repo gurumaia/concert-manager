@@ -248,6 +248,68 @@ describe(`events and venues [${kind}]`, () => {
     expect((await svc.getEvent(me, a.event.id)).venueId).toBe(dup.id);
   });
 
+  it("renames a venue with a start date: each show keeps the name of its day, all shows stay on one venue", async () => {
+    const { svc, me } = await setup();
+    const old = (await svc.createEvent(me, { title: "Then", date: "2024-05-01", venue: { name: "Allianz Parque", city: "São Paulo" } })).event;
+    const venueId = old.venueId!;
+    const renamed = await svc.renameVenue(me, venueId, "Nubank Parque", "2025-01-15");
+    expect(renamed.name).toBe("Nubank Parque");
+    expect(renamed.names?.map((n) => n.name)).toEqual(["Allianz Parque", "Nubank Parque"]);
+    // a show sent under the OLD name resolves to the same venue, but displays the name of its date
+    const now = (await svc.createEvent(me, { title: "Now", date: "2026-12-01", venue: { name: "Allianz Parque", city: "São Paulo" } })).event;
+    expect(now.venueId).toBe(venueId);
+    expect(now.venue?.name).toBe("Nubank Parque");
+    expect((await svc.getEvent(me, old.id)).venue?.name).toBe("Allianz Parque");
+    // filtering by venue returns both; searching either name finds the venue
+    expect((await svc.listEvents(me, { venueId })).events.map((e) => e.title).sort()).toEqual(["Now", "Then"]);
+    expect(await svc.listVenues(me, { text: "allianz" })).toHaveLength(1);
+    expect((await svc.listVenues(me))).toHaveLength(1);
+    // another venue cannot take a name this one has had
+    await expect(svc.createVenue(me, { name: "allianz parque", city: "São Paulo" })).rejects.toThrow(/already exists/);
+    // a correction through update_venue fixes the current name only
+    expect((await svc.updateVenue(me, venueId, { name: "Nubank Parque SP" })).names?.map((n) => n.name)).toEqual(["Allianz Parque", "Nubank Parque SP"]);
+    // removing the oldest name leaves the next one covering earlier dates
+    const after = await svc.removeVenueName(me, venueId, "Allianz Parque");
+    expect(after.names).toEqual([{ name: "Nubank Parque SP" }]);
+    await expect(svc.removeVenueName(me, venueId, "Nubank Parque SP")).rejects.toThrow(/at least one/);
+  });
+
+  it("text search finds shows by any name of their venue", async () => {
+    const { svc, me } = await setup();
+    const e = (await svc.createEvent(me, { title: "Then", date: "2010-05-01", venue: { name: "Credicard Hall" } })).event;
+    await svc.renameVenue(me, e.venueId!, "Vibra São Paulo", "2020-01-01");
+    await svc.createEvent(me, { title: "Now", date: "2026-12-01", venueId: e.venueId! });
+    const found = (await svc.listEvents(me, { text: "credicard" })).events.map((x) => x.title).sort();
+    expect(found).toEqual(["Now", "Then"]);
+    expect((await svc.getEvent(me, e.id)).venue?.currentName).toBe("Vibra São Paulo");
+  });
+
+  it("a future-dated rename takes effect when the date arrives", async () => {
+    const { svc, me } = await setup();
+    const v = await svc.createVenue(me, { name: "Old Hall" });
+    const r = await svc.renameVenue(me, v.id, "New Hall", "2999-01-01");
+    expect(r.name).toBe("Old Hall");
+    expect((await svc.createEvent(me, { title: "Far", date: "2999-06-01", venueId: v.id })).event.venue?.name).toBe("New Hall");
+  });
+
+  it("merge_venues keeps the old name and uses nameChangedOn as the start of the surviving name", async () => {
+    const { svc, me } = await setup();
+    const oldV = (await svc.createEvent(me, { title: "Then", date: "2024-05-01", venue: { name: "Allianz Parque" } })).event;
+    const newV = (await svc.createEvent(me, { title: "Now", date: "2026-12-01", venue: { name: "Nubank Parque" } })).event;
+    const r = await svc.mergeVenues(me, oldV.venueId!, newV.venueId!, "2025-01-15");
+    expect(r.moved).toBe(1);
+    expect((await svc.getEvent(me, oldV.id)).venue?.name).toBe("Allianz Parque");
+    expect((await svc.getEvent(me, newV.id)).venue?.name).toBe("Nubank Parque");
+    expect((await svc.getEvent(me, oldV.id)).venueId).toBe(newV.venueId);
+    // without a date the old name is only an alias
+    const a = await svc.createVenue(me, { name: "Alpha" });
+    const b = await svc.createVenue(me, { name: "Beta" });
+    await svc.mergeVenues(me, a.id, b.id);
+    const merged = await svc.getVenue(me, b.id);
+    expect(merged.name).toBe("Beta");
+    expect(merged.names?.map((n) => n.name)).toEqual(["Alpha", "Beta"]);
+  });
+
   it("retires a venue: hidden from list_venues, still on its events and in stats, reversible", async () => {
     const { svc, me } = await setup();
     const a = (await svc.createEvent(me, { title: "Old gig", date: "2025-05-01", venue: { name: "Closed Club" } })).event;

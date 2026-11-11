@@ -351,3 +351,5 @@ main.centered { padding: 1rem; }
 .setlist h4 { font-size: .9rem; margin: .8rem 0 .3rem; }
 .setlist-songs { margin: 0 0 .5rem; padding-left: 1.6rem; display: grid; gap: .15rem; }
 .setlist-section-name { margin: .5rem 0 .2rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+
+.names ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; } .names li { justify-content: space-between; }

@@ -38,8 +38,16 @@ export const VenueInput = z.object({
   notes: z.string().optional(),
 });
 export type VenueInput = z.infer<typeof VenueInput>;
-/** retiredAt is set when a venue closed: hidden from list_venues by default, but its events and stats stay. */
-export type Venue = VenueInput & { id: string; createdAt: string; updatedAt: string; retiredAt?: string };
+/** A name a venue has had. `from` is the first day it applied; no `from` means "since before we track" (the first name). */
+export type VenueName = { name: string; from?: string };
+/**
+ * retiredAt is set when a venue closed: hidden from list_venues by default, but its events and stats stay.
+ * `names` is the venue's naming history (a rename is not a closure); `name` is the one in effect today. Absent = one undated name.
+ */
+export type Venue = VenueInput & { id: string; createdAt: string; updatedAt: string; retiredAt?: string; names?: VenueName[];
+  /** Only on a venue inside an event view: `name` is the name on the show's date, this is the name today. */
+  currentName?: string;
+};
 
 // ---- Event ----
 export const EventInput = z.object({

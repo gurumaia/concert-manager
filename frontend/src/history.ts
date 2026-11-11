@@ -105,6 +105,29 @@ export function peopleOf(events: EventView[]): Person[] {
   })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+/** Adds typed names to a Going-with list. Commas split ("Ana, Bruno" pasted at once); a name already on the list in any spelling is skipped. */
+export function addCompanions(list: string[], raw: string): string[] {
+  const out = [...list];
+  const keys = new Set(out.map(personKey));
+  for (const part of raw.split(",")) {
+    const name = part.trim().replace(/\s+/g, " ");
+    const key = personKey(name);
+    if (key && !keys.has(key)) { keys.add(key); out.push(name); }
+  }
+  return out;
+}
+
+/** Autocomplete for the Going-with input: people already used elsewhere, minus those on this RSVP. Names starting with the text rank above names merely containing it. */
+export function suggestPeople(people: Person[], typed: string, taken: string[], limit = 6): string[] {
+  const q = personKey(typed);
+  const skip = new Set(taken.map(personKey));
+  const pool = people.filter((p) => !skip.has(p.key));
+  if (!q) return pool.slice(0, limit).map((p) => p.name);
+  const starts = pool.filter((p) => p.key.startsWith(q) || p.key.split(" ").some((w) => w.startsWith(q)));
+  const rest = pool.filter((p) => !starts.includes(p) && p.key.includes(q));
+  return [...starts, ...rest].slice(0, limit).map((p) => p.name);
+}
+
 /** `who` is a person key, ALONE, or undefined for everyone. */
 export function withWho(e: Pick<EventView, "rsvp">, who?: string): boolean {
   if (!who) return true;

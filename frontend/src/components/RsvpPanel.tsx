@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { op } from "../api";
 import { money, statusLabel, tierLabel } from "../format";
+import { peopleOf, type Person } from "../history";
+import { PeopleInput } from "./PeopleInput";
 import type { EventView, RsvpStatus, SyncResult } from "../types";
 
 const STATUSES: RsvpStatus[] = ["interested", "going", "skipped", "attended"];
@@ -12,13 +14,22 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
   const [qty, setQty] = useState(r?.quantity?.toString() ?? "");
   const [paid, setPaid] = useState(r?.pricePaid?.toString() ?? "");
   const [fees, setFees] = useState(r?.feesPaid?.toString() ?? "");
-  const [companions, setCompanions] = useState((r?.companions ?? []).join(", "));
+  const [companions, setCompanions] = useState<string[]>(r?.companions ?? []);
+  const [people, setPeople] = useState<Person[]>([]);
   const [notes, setNotes] = useState(r?.notes ?? "");
   const [shareEmail, setShareEmail] = useState("");
   const [msg, setMsg] = useState<{ warnings: string[]; calendar?: SyncResult }>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const n = (s: string) => (s.trim() === "" ? undefined : Number(s.replace(",", ".")));
+
+  // Suggestions are only a convenience, so a failed lookup just leaves the box without them.
+  useEffect(() => {
+    let live = true;
+    op<{ events: EventView[] }>("list_events", { rsvp: "any", limit: 500, sort: "desc" })
+      .then((res) => { if (live) setPeople(peopleOf(res.events)); }, () => {});
+    return () => { live = false; };
+  }, []);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setError(undefined);
@@ -29,7 +40,7 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
     const res = await op<SetRsvpResult>("set_rsvp", {
       eventId: event.id, status,
       tierName: tier || undefined, quantity: n(qty), pricePaid: n(paid), feesPaid: n(fees),
-      companions: companions.split(",").map((s) => s.trim()).filter(Boolean), notes: notes.trim() || undefined,
+      companions, notes: notes.trim() || undefined,
     });
     setMsg({ warnings: res.warnings, calendar: res.calendar });
     onChanged();
@@ -66,7 +77,7 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
             {showTicketFields && <label>Paid ({event.currency ?? "BRL"})<input inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)} /></label>}
             {showTicketFields && <label>Fees paid<input inputMode="decimal" value={fees} onChange={(e) => setFees(e.target.value)} /></label>}
           </div>
-          <label>Going with<input value={companions} onChange={(e) => setCompanions(e.target.value)} placeholder="Names, comma separated" /></label>
+          <PeopleInput label="Going with" value={companions} onChange={setCompanions} people={people} />
           <label>Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           <div className="actions">
             <button className="btn" disabled={busy} onClick={() => save(r.status)}>Save details</button>

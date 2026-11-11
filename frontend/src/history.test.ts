@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALONE, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, summarize, withWho } from "./history";
+import { ALONE, addCompanions, suggestPeople, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, summarize, withWho } from "./history";
 import type { EventView } from "./types";
 
 let n = 0;
@@ -80,5 +80,15 @@ describe("who I went with", () => {
   });
   it("starts the last 12 months one year back", () => {
     expect(lastYearStart(new Date(2026, 10, 11))).toBe("2025-11-11");
+  });
+  it("adds names, splitting commas and skipping ones already listed", () => {
+    expect(addCompanions(["Ana"], " bruno ,  Carla Souza, ANA ,")).toEqual(["Ana", "bruno", "Carla Souza"]);
+    expect(addCompanions(["Ana"], "  ")).toEqual(["Ana"]);
+  });
+  it("suggests known people, best match first, never ones already on the list", () => {
+    const people = peopleOf([withPeople("2020-01-01", ["Maria Ana", "Ana", "Bruno", "Joana"]), withPeople("2021-01-01", ["Ana"])]);
+    expect(suggestPeople(people, "an", [])).toEqual(["Ana", "Maria Ana", "Joana"]);
+    expect(suggestPeople(people, "an", ["ana"])).toEqual(["Maria Ana", "Joana"]);
+    expect(suggestPeople(people, "", ["Bruno"], 2)).toEqual(["Ana", "Joana"]);
   });
 });

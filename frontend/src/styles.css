@@ -138,6 +138,16 @@ main.centered { min-height: 80vh; display: grid; place-content: center; text-ali
 .chips { list-style: none; padding: 0; margin: .4rem 0; display: flex; gap: .4rem; flex-wrap: wrap; }
 .chip { display: inline-flex; align-items: center; background: var(--surface-2); border-radius: 999px; padding: .1rem .2rem .1rem .75rem; font-size: .9rem; }
 
+.people { display: grid; gap: .25rem; position: relative; }
+.people-label { font-size: .85rem; font-weight: 600; }
+.people-box { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: .3rem .45rem; min-height: 40px; }
+.people-box:focus-within { outline: 2px solid var(--focus, currentColor); outline-offset: 1px; }
+.people-box input { flex: 1 1 8rem; width: auto; min-width: 6rem; border: 0; padding: .25rem .2rem; min-height: 30px; background: transparent; }
+.people-box input:focus { outline: none; }
+.people-list { list-style: none; margin: 0; padding: .25rem; position: absolute; top: 100%; left: 0; right: 0; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / .25); }
+.people-list li { padding: .5rem .65rem; border-radius: 6px; cursor: pointer; }
+.people-list li:hover, .people-list li.on { background: var(--surface-2); }
+
 .form { display: grid; gap: .8rem; }
 .form.compact { margin-top: 1rem; }
 label { display: grid; gap: .25rem; font-size: .85rem; font-weight: 600; }

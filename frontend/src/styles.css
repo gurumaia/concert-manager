@@ -210,12 +210,20 @@ main.centered { padding: 1rem; }
   border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 55%, transparent); font-size: .88rem; color: var(--muted); }
 .card.ev .acts { display: flex; justify-content: flex-end; }
 .card.ev .acts-btns { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
+/* Narrow cards (phones and tablets): time and price flow side by side while they fit; when they do not, a whole item wraps to the
+   next line instead of being squeezed or overlapping. Wide cards keep the aligned columns above. */
+@media (max-width: 900px) {
+  .card.ev .foot { display: flex; flex-wrap: wrap; gap: .4rem 1.1rem; }
+  .card.ev .foot .line { flex: 0 1 auto; min-width: 0; }
+  .card.ev .acts { margin-left: auto; }
+}
+
 @media (max-width: 640px) {
   /* Phones: the genre and sale pills drop under the title, and the footer's actions get their own row. */
   .card.ev .card-main { flex-wrap: wrap; }
   .card.ev .side { order: 3; flex: 1 0 100%; max-width: none; min-height: 0; flex-direction: row; justify-content: flex-start; align-items: center; margin-left: 4.3rem; flex-wrap: wrap; }
-  .card.ev .foot { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
-  .card.ev .acts { grid-column: 1 / -1; justify-content: flex-start; }
+  .card.ev .foot { font-size: .82rem; gap: .4rem .8rem; }
+  .card.ev .acts { flex: 1 0 100%; margin-left: 0; justify-content: flex-start; }
   .card.ev .acts-btns { justify-content: flex-start; }
 }
 .gchip { flex: none; }

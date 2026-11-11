@@ -219,3 +219,12 @@ main.centered { padding: 1rem; }
   .card.ev .acts-btns { justify-content: flex-start; }
 }
 .gchip { flex: none; }
+
+/* Quick RSVP: all three dim, the chosen one lit in its status colour */
+.qbtn { font: inherit; font-weight: 600; font-size: .85rem; min-height: 32px; padding: .28rem .7rem; border-radius: 9px; cursor: pointer;
+  background: transparent; color: var(--muted); border: 1px solid var(--border); opacity: .8; }
+.qbtn:hover:not(.on) { opacity: 1; color: var(--text); background: var(--surface-2); }
+.qbtn.on { opacity: 1; font-weight: 700; cursor: default; }
+.qbtn.on.going { background: var(--going-bg); border-color: var(--going); color: var(--going); }
+.qbtn.on.interested { background: var(--interested-bg); border-color: var(--interested); color: var(--interested); }
+.qbtn.on.skipped { background: var(--skipped-bg); border-color: var(--skipped); color: var(--text); }

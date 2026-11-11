@@ -3,6 +3,8 @@ import { addedLabel, dateLabel, genreHue, priceLabel, saleLabel, statusLabel, ti
 import type { EventView } from "../types";
 import { Icon } from "./Icon";
 
+const QUICK: Array<["going" | "interested" | "skipped", string]> = [["going", "Going"], ["interested", "Interested"], ["skipped", "Skip"]];
+
 /**
  * Every card has the same slots in the same places: title (+ New) / acts / venue on the left, genre top-right and sale status
  * bottom-right, then a footer with time, price and the RSVP actions. Missing time or price shows a muted "TBA" in its slot.
@@ -49,14 +51,15 @@ export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
         <span className={`line${hasTime ? "" : " tba"}`}><Icon name="clock" />{timeLabel(event)}</span>
         <span className={`line${price ? "" : " tba"}`}><Icon name="ticket" />{price ?? "Price TBA"}</span>
         <span className="acts">
-          {status ? (
-            <span className={`badge ${status}`}>{statusLabel[status]}</span>
-          ) : onQuick ? (
-            <span role="group" aria-label={`Quick RSVP for ${event.title}`} className="acts-btns">
-              <button className="btn small primary" onClick={() => onQuick("going")}>Going</button>
-              <button className="btn small" onClick={() => onQuick("interested")}>Interested</button>
-              <button className="btn small ghost" onClick={() => onQuick("skipped")}>Skip</button>
+          {onQuick && status !== "attended" ? (
+            // All three stay quiet; only the one matching your RSVP is lit, in its status colour.
+            <span role="group" aria-label={`RSVP for ${event.title}`} className="acts-btns">
+              {QUICK.map(([s, label]) => (
+                <button key={s} className={`qbtn${status === s ? ` on ${s}` : ""}`} aria-pressed={status === s} onClick={() => status !== s && onQuick(s)}>{label}</button>
+              ))}
             </span>
+          ) : status ? (
+            <span className={`badge ${status}`}>{statusLabel[status]}</span>
           ) : sharedBy ? (
             <span className="tag">from {sharedBy}</span>
           ) : null}

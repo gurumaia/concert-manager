@@ -47,16 +47,43 @@ describe("EventCard", () => {
     expect((document.querySelector(".genre-pill") as HTMLElement).style.getPropertyValue("--h")).toBe(hue);
   });
 
-  it("puts quick RSVP buttons in the footer until you have decided, then the status", () => {
+  it("shows three dim RSVP buttons in the footer, none lit until you decide", () => {
     const quick = vi.fn();
-    const { unmount } = card(bare, { onQuick: quick });
+    card(bare, { onQuick: quick });
     const foot = document.querySelector(".foot") as HTMLElement;
+    const buttons = within(foot).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Going", "Interested", "Skip"]);
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "false"]);
+    expect(buttons.every((b) => !b.className.includes(" on"))).toBe(true);
+    fireEvent.click(buttons[0]!);
+    fireEvent.click(buttons[2]!);
+    expect(quick.mock.calls).toEqual([["going"], ["skipped"]]);
+  });
+
+  it("lights only the button that matches your RSVP, and clicking it again does nothing", () => {
+    const quick = vi.fn();
+    card({ ...bare, rsvp: { eventId: "1", status: "interested", sharedWith: [], createdAt: "", updatedAt: "" } }, { onQuick: quick });
+    const foot = document.querySelector(".foot") as HTMLElement;
+    expect(within(foot).getByRole("button", { name: "Interested" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(foot).getByRole("button", { name: "Interested" }).className).toContain("on interested");
+    expect(within(foot).getByRole("button", { name: "Going" }).getAttribute("aria-pressed")).toBe("false");
+    expect(within(foot).getByRole("button", { name: "Skip" }).className).not.toContain(" on");
+    fireEvent.click(within(foot).getByRole("button", { name: "Interested" }));
+    expect(quick).not.toHaveBeenCalled();
     fireEvent.click(within(foot).getByRole("button", { name: "Going" }));
     expect(quick).toHaveBeenCalledWith("going");
-    unmount();
-    card({ ...bare, rsvp: { eventId: "1", status: "going", sharedWith: [], createdAt: "", updatedAt: "" } });
-    expect(within(document.querySelector(".foot") as HTMLElement).getByText("Going")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Interested" })).toBeNull();
+  });
+
+  it("shows an Attended badge instead of the buttons once the show is attended", () => {
+    card({ ...bare, rsvp: { eventId: "1", status: "attended", sharedWith: [], createdAt: "", updatedAt: "" } });
+    const foot = document.querySelector(".foot") as HTMLElement;
+    expect(within(foot).getByText("Attended")).toBeTruthy();
+    expect(within(foot).queryByRole("button", { name: "Going" })).toBeNull();
+  });
+
+  it("shows the sharer's RSVP as a read-only badge on a shared show", () => {
+    card({ ...bare, rsvp: { eventId: "1", status: "going", sharedWith: [], createdAt: "", updatedAt: "" } }, { onQuick: undefined, sharedBy: "Her" });
+    expect(within(document.querySelector(".foot") as HTMLElement).getByText("Going").className).toContain("badge");
   });
 
   it("shows who shared it instead of actions on a shared show", () => {

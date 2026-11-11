@@ -77,7 +77,11 @@ export class Service {
   // ----------------------------------------------------------------- venues
   async createVenue(ctx: Ctx, input: VenueInput): Promise<Venue> {
     const existing = await this.findVenueByName(ctx, input.name, input.city);
-    if (existing) throw new AppError("conflict", `Venue "${existing.name}" already exists (id ${existing.id}). Use update_venue.`);
+    if (existing) {
+      throw new AppError("conflict", existing.retiredAt
+        ? `Venue "${existing.name}" exists but is retired (id ${existing.id}). Use unretire_venue if it reopened.`
+        : `Venue "${existing.name}" already exists (id ${existing.id}). Use update_venue.`);
+    }
     const now = this.now();
     const v: Venue = { ...input, id: randomUUID(), createdAt: now, updatedAt: now };
     await this.repo.putVenue(ctx.userId, v);
@@ -95,15 +99,36 @@ export class Service {
 
   async getVenue(ctx: Ctx, id: string) { return this.mustVenue(ctx, id); }
 
-  async listVenues(ctx: Ctx, opts: { text?: string } = {}) {
+  /** Retired venues are hidden unless includeRetired is set. */
+  async listVenues(ctx: Ctx, opts: { text?: string; includeRetired?: boolean } = {}) {
     const [venues, events] = await Promise.all([this.repo.listVenues(ctx.userId), this.repo.listEvents(ctx.userId)]);
     const counts = new Map<string, number>();
     for (const e of events) if (e.venueId) counts.set(e.venueId, (counts.get(e.venueId) ?? 0) + 1);
     const q = opts.text ? norm(opts.text) : undefined;
     return venues
+      .filter((v) => opts.includeRetired || !v.retiredAt)
       .filter((v) => !q || norm([v.name, v.city, v.address].filter(Boolean).join(" ")).includes(q))
       .map((v) => ({ ...v, eventCount: counts.get(v.id) ?? 0 }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Mark a venue as closed. Its events, RSVPs and stats are untouched. */
+  async retireVenue(ctx: Ctx, id: string): Promise<Venue> {
+    const v = await this.mustVenue(ctx, id);
+    if (v.retiredAt) return v;
+    const next = { ...v, retiredAt: this.now(), updatedAt: this.now() };
+    await this.repo.putVenue(ctx.userId, next);
+    return next;
+  }
+
+  /** Bring a retired venue back (it reopened, or was retired by mistake). */
+  async unretireVenue(ctx: Ctx, id: string): Promise<Venue> {
+    const v = await this.mustVenue(ctx, id);
+    if (!v.retiredAt) return v;
+    const { retiredAt: _r, ...rest } = v;
+    const next = { ...rest, updatedAt: this.now() };
+    await this.repo.putVenue(ctx.userId, next);
+    return next;
   }
 
   async deleteVenue(ctx: Ctx, id: string) {
@@ -118,7 +143,8 @@ export class Service {
   async mergeVenues(ctx: Ctx, fromId: string, intoId: string) {
     if (fromId === intoId) throw new AppError("invalid", "fromId and intoId are the same venue");
     await this.mustVenue(ctx, fromId);
-    await this.mustVenue(ctx, intoId);
+    const target = await this.mustVenue(ctx, intoId);
+    if (target.retiredAt) throw new AppError("invalid", `Venue "${target.name}" is retired; unretire it before merging into it.`);
     const events = (await this.repo.listEvents(ctx.userId)).filter((e) => e.venueId === fromId);
     for (const e of events) await this.repo.putEvent(ctx.userId, { ...e, venueId: intoId, updatedAt: this.now() });
     await this.repo.deleteVenue(ctx.userId, fromId);

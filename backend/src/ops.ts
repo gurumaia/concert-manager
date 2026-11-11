@@ -132,8 +132,8 @@ export const ops: Op[] = [
   // ---- venues
   op({
     name: "list_venues", title: "List venues", readOnly: true,
-    description: "List venues with how many events each has.",
-    input: z.object({ text: z.string().optional() }),
+    description: "List active venues with how many events each has. Retired (closed) venues are left out unless includeRetired is true.",
+    input: z.object({ text: z.string().optional(), includeRetired: z.boolean().optional().describe("Also return retired venues") }),
     run: (s, c, i) => s.listVenues(c, i),
   }),
   op({
@@ -153,6 +153,18 @@ export const ops: Op[] = [
     description: "Change fields of a venue; calendar entries of events there are refreshed.",
     input: z.object({ venueId: id, changes: nullablePartial(VenueInput) }),
     run: (s, c, i) => s.updateVenue(c, i.venueId, i.changes),
+  }),
+  op({
+    name: "retire_venue", title: "Retire venue",
+    description: "Mark a venue as closed so it no longer appears in list_venues. Its past events, RSVPs and stats are kept. Reversible with unretire_venue. Prefer this over delete_venue.",
+    input: z.object({ venueId: id }),
+    run: (s, c, i) => s.retireVenue(c, i.venueId),
+  }),
+  op({
+    name: "unretire_venue", title: "Unretire venue",
+    description: "Bring a retired venue back into list_venues (it reopened, or was retired by mistake).",
+    input: z.object({ venueId: id }),
+    run: (s, c, i) => s.unretireVenue(c, i.venueId),
   }),
   op({
     name: "delete_venue", title: "Delete venue", destructive: true,

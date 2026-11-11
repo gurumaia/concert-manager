@@ -93,7 +93,7 @@ function Shell({ path, go, cfg }: { path: string; go: (to: string) => void; cfg:
     try {
       const [e, v] = await Promise.all([
         op<{ events: EventView[] }>("list_events", { limit: 500 }),
-        op<VenueRow[]>("list_venues"),
+        op<VenueRow[]>("list_venues", { includeRetired: true }),
       ]);
       setEvents(e.events); setVenues(v); setError(undefined);
     } catch (err) {

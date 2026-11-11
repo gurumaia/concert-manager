@@ -71,7 +71,7 @@ export function EventForm({ event, venues, onSave, onCancel }: {
       <label>Venue
         <select value={d.venueId} onChange={(e) => set("venueId", e.target.value)}>
           <option value="">Unknown</option>
-          {venues.map((v) => <option key={v.id} value={v.id}>{v.name}{v.city ? ` (${v.city})` : ""}</option>)}
+          {venues.filter((v) => !v.retiredAt || v.id === d.venueId).map((v) => <option key={v.id} value={v.id}>{v.name}{v.city ? ` (${v.city})` : ""}{v.retiredAt ? " (closed)" : ""}</option>)}
           <option value={NEW_VENUE}>New venue…</option>
         </select>
       </label>

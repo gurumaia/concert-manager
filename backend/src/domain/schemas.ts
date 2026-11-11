@@ -38,7 +38,8 @@ export const VenueInput = z.object({
   notes: z.string().optional(),
 });
 export type VenueInput = z.infer<typeof VenueInput>;
-export type Venue = VenueInput & { id: string; createdAt: string; updatedAt: string };
+/** retiredAt is set when a venue closed: hidden from list_venues by default, but its events and stats stay. */
+export type Venue = VenueInput & { id: string; createdAt: string; updatedAt: string; retiredAt?: string };
 
 // ---- Event ----
 export const EventInput = z.object({

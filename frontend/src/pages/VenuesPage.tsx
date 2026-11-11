@@ -12,20 +12,27 @@ const FIELDS: Array<[Field, string, string?]> = [
 export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () => void }) {
   const [editing, setEditing] = useState<VenueRow | "new">();
   const [error, setError] = useState<string>();
+  const [showRetired, setShowRetired] = useState(false);
+  const retiredCount = venues.filter((v) => v.retiredAt).length;
+  const visible = venues.filter((v) => showRetired || !v.retiredAt);
 
   return (
     <>
       <div className="toolbar"><h1>Venues</h1><button className="btn primary" onClick={() => setEditing("new")}>+ Add venue</button></div>
       {error && <p role="alert" className="error">{error}</p>}
-      {!venues.length && <div className="empty"><p><strong>No venues yet.</strong></p><p className="muted">Venues are created when you add events.</p></div>}
+      {retiredCount > 0 && (
+        <label className="check"><input type="checkbox" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} /> Show closed venues ({retiredCount})</label>
+      )}
+      {!visible.length && <div className="empty"><p><strong>No venues yet.</strong></p><p className="muted">Venues are created when you add events.</p></div>}
       <ul className="cards">
-        {venues.map((v) => (
-          <li key={v.id} className="card">
+        {visible.map((v) => (
+          <li key={v.id} className={`card ${v.retiredAt ? "skipped" : ""}`}>
             <button className="card-main" onClick={() => setEditing(v)}>
               <span className="info">
                 <span className="title">{v.name}</span>
                 <span className="sub">{[v.address, v.city, v.state].filter(Boolean).join(", ") || "No address yet"}</span>
               </span>
+              {v.retiredAt && <span className="badge skipped">Closed</span>}
               <span className="tag">{v.eventCount} {v.eventCount === 1 ? "show" : "shows"}</span>
             </button>
           </li>
@@ -35,7 +42,7 @@ export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () 
         <Modal title={editing === "new" ? "Add venue" : editing.name} onClose={() => setEditing(undefined)}>
           <VenueForm
             venue={editing === "new" ? undefined : editing}
-            others={venues.filter((v) => editing === "new" || v.id !== editing.id)}
+            others={venues.filter((v) => !v.retiredAt && (editing === "new" || v.id !== editing.id))}
             onDone={() => { setEditing(undefined); reload(); }}
             onError={setError}
           />
@@ -75,6 +82,12 @@ function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; other
       <div className="actions spread">
         {venue ? (
           <div className="row">
+            <button type="button" className="btn" disabled={busy}
+              onClick={async () => {
+                setBusy(true); setErr(undefined);
+                try { await op(venue.retiredAt ? "unretire_venue" : "retire_venue", { venueId: venue.id }); onDone(); }
+                catch (e) { setErr((e as Error).message); setBusy(false); }
+              }}>{venue.retiredAt ? "Reopen venue" : "Mark as closed"}</button>
             <select aria-label="Merge into another venue" value={mergeInto} onChange={(e) => setMergeInto(e.target.value)}>
               <option value="">Merge into…</option>
               {others.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}

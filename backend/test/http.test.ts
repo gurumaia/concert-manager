@@ -198,7 +198,7 @@ describe("MCP over HTTP", () => {
 
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    for (const n of ["bulk_create_events", "create_event", "set_rsvp", "list_events", "calendar_connect", "calendar_select", "update_event", "delete_event", "share_rsvp", "get_stats", "merge_venues"]) {
+    for (const n of ["retire_venue", "unretire_venue", "bulk_create_events", "create_event", "set_rsvp", "list_events", "calendar_connect", "calendar_select", "update_event", "delete_event", "share_rsvp", "get_stats", "merge_venues"]) {
       expect(names).toContain(n);
     }
     expect(tools.find((t) => t.name === "delete_event")?.annotations?.destructiveHint).toBe(true);

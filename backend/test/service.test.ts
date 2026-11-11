@@ -68,6 +68,31 @@ describe(`events and venues [${kind}]`, () => {
     expect((await svc.getEvent(me, a.event.id)).venueId).toBe(dup.id);
   });
 
+  it("retires a venue: hidden from list_venues, still on its events and in stats, reversible", async () => {
+    const { svc, me } = await setup();
+    const a = (await svc.createEvent(me, { title: "Old gig", date: "2025-05-01", venue: { name: "Closed Club" } })).event;
+    await svc.createEvent(me, { title: "Other", date: "2026-12-01", venue: { name: "Open Club" } });
+    await svc.setRsvp(me, a.id, { status: "attended" });
+    const retired = await svc.retireVenue(me, a.venueId!);
+    expect(retired.retiredAt).toBeTruthy();
+    expect((await svc.listVenues(me)).map((v) => v.name)).toEqual(["Open Club"]);
+    expect((await svc.listVenues(me, { includeRetired: true })).map((v) => v.name)).toEqual(["Closed Club", "Open Club"]);
+    expect((await svc.listVenues(me, { text: "closed" }))).toHaveLength(0);
+    expect((await svc.getEvent(me, a.id)).venue?.name).toBe("Closed Club");
+    expect((await svc.stats(me)).attendedByVenue[0]).toMatchObject({ venue: "Closed Club", count: 1 });
+    expect((await svc.retireVenue(me, a.venueId!)).retiredAt).toBe(retired.retiredAt); // idempotent
+    // adding another event at the same name reuses the retired venue instead of resurrecting or duplicating it
+    const again = await svc.createEvent(me, { title: "Late add", date: "2025-06-01", venue: { name: "closed club" } });
+    expect(again.event.venueId).toBe(a.venueId);
+    expect((await svc.listVenues(me)).map((v) => v.name)).toEqual(["Open Club"]);
+    await expect(svc.createVenue(me, { name: "Closed Club" })).rejects.toThrow(/retired/);
+    const open = (await svc.listVenues(me))[0]!;
+    await expect(svc.mergeVenues(me, open.id, a.venueId!)).rejects.toThrow(/retired/);
+    const back = await svc.unretireVenue(me, a.venueId!);
+    expect(back.retiredAt).toBeUndefined();
+    expect((await svc.listVenues(me)).map((v) => v.name)).toEqual(["Closed Club", "Open Club"]);
+  });
+
   it("keeps data private per user", async () => {
     const { svc, me, her } = (await setup());
     const a = await svc.createEvent(me, friedman);

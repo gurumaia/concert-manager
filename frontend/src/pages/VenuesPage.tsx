@@ -3,10 +3,10 @@ import { op } from "../api";
 import { Modal } from "../components/Modal";
 import type { VenueRow } from "../types";
 
-type Field = "name" | "address" | "city" | "state" | "country" | "timezone" | "website" | "mapsUrl" | "notes";
+type Field = "name" | "address" | "city" | "state" | "country" | "capacity" | "timezone" | "website" | "mapsUrl" | "notes";
 const FIELDS: Array<[Field, string, string?]> = [
   ["name", "Name"], ["address", "Street address", "Shown as the location on your calendar"], ["city", "City"], ["state", "State"],
-  ["country", "Country"], ["timezone", "Time zone", "e.g. America/Sao_Paulo"], ["website", "Website"], ["mapsUrl", "Map link"], ["notes", "Notes"],
+  ["country", "Country"], ["capacity", "Capacity", "Number of people the venue holds"], ["timezone", "Time zone", "e.g. America/Sao_Paulo"], ["website", "Website"], ["mapsUrl", "Map link"], ["notes", "Notes"],
 ];
 
 export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () => void }) {
@@ -31,6 +31,7 @@ export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () 
               <span className="info">
                 <span className="title">{v.name}</span>
                 <span className="sub">{[v.address, v.city, v.state].filter(Boolean).join(", ") || "No address yet"}</span>
+                {v.capacity ? <span className="sub">Capacity {v.capacity.toLocaleString("en-US")}</span> : null}
               </span>
               {v.retiredAt && <span className="badge skipped">Closed</span>}
               <span className="tag">{v.eventCount} {v.eventCount === 1 ? "show" : "shows"}</span>
@@ -53,19 +54,26 @@ export function VenuesPage({ venues, reload }: { venues: VenueRow[]; reload: () 
 }
 
 function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; others: VenueRow[]; onDone: () => void; onError: (m: string) => void }) {
-  const [d, setD] = useState<Record<Field, string>>(() => Object.fromEntries(FIELDS.map(([k]) => [k, (venue?.[k] as string | undefined) ?? ""])) as Record<Field, string>);
+  const [d, setD] = useState<Record<Field, string>>(() => Object.fromEntries(FIELDS.map(([k]) => [k, venue?.[k] !== undefined ? String(venue[k]) : ""])) as Record<Field, string>);
   const [mergeInto, setMergeInto] = useState("");
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
+
+  // capacity is the one numeric field; blank means "unknown" (null clears it on update).
+  const value = (k: Field): string | number | undefined => {
+    const t = d[k].trim();
+    if (!t) return undefined;
+    return k === "capacity" ? Number(t.replace(/[.,\s]/g, "")) : t;
+  };
 
   async function save(e: FormEvent) {
     e.preventDefault(); setBusy(true); setErr(undefined);
     try {
       if (venue) {
-        const changes = Object.fromEntries(FIELDS.map(([k]) => [k, d[k].trim() || (k === "name" ? undefined : null)]));
+        const changes = Object.fromEntries(FIELDS.map(([k]) => [k, value(k) ?? (k === "name" ? undefined : null)]));
         await op("update_venue", { venueId: venue.id, changes });
       } else {
-        await op("create_venue", Object.fromEntries(FIELDS.map(([k]) => [k, d[k].trim() || undefined])));
+        await op("create_venue", Object.fromEntries(FIELDS.map(([k]) => [k, value(k)])));
       }
       onDone();
     } catch (e2) { setErr((e2 as Error).message); setBusy(false); }
@@ -75,7 +83,7 @@ function VenueForm({ venue, others, onDone, onError }: { venue?: VenueRow; other
     <form className="form" onSubmit={save}>
       {FIELDS.map(([k, label, hint]) => (
         <label key={k}>{label}{hint && <span className="muted small"> · {hint}</span>}
-          <input required={k === "name"} value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} />
+          <input required={k === "name"} {...(k === "capacity" ? { inputMode: "numeric" as const } : {})} value={d[k]} onChange={(e) => setD({ ...d, [k]: e.target.value })} />
         </label>
       ))}
       {err && <p role="alert" className="error">{err}</p>}

@@ -56,6 +56,7 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
             <strong>{event.venue.name}</strong>
             {event.venue.address && <><br />{event.venue.address}</>}
             {(event.venue.city || event.venue.state) && <><br />{[event.venue.city, event.venue.state].filter(Boolean).join(" - ")}</>}
+            {event.venue.capacity ? <><br /><span className="muted">Capacity {event.venue.capacity.toLocaleString("en-US")}</span></> : null}
             {event.venue.mapsUrl && <><br /><a href={event.venue.mapsUrl} target="_blank" rel="noreferrer">Open map</a></>}
           </p>
         ) : <p className="muted">Venue not set</p>}

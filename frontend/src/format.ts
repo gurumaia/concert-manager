@@ -48,3 +48,22 @@ export const saleLabel: Record<string, string> = {
   cancelled: "Cancelled",
   postponed: "Postponed",
 };
+
+export const NEW_WINDOW_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Added within the last 7 days (rolling window, not calendar weeks). */
+export function isNewEvent(createdAt: string | undefined, nowMs: number): boolean {
+  const t = createdAt ? Date.parse(createdAt) : NaN;
+  return Number.isFinite(t) && nowMs - t < NEW_WINDOW_DAYS * DAY_MS;
+}
+
+/** How long ago a show was added, by elapsed time: "just now", "5 hours ago", "3 days ago". */
+export function addedLabel(createdAt: string, nowMs: number): string {
+  const elapsed = Math.max(0, nowMs - Date.parse(createdAt));
+  const hours = Math.floor(elapsed / (60 * 60 * 1000));
+  if (elapsed < 60 * 60 * 1000) return "just now";
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(elapsed / DAY_MS);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}

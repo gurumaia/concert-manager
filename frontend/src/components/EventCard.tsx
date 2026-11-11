@@ -1,29 +1,33 @@
-import { dateLabel, priceLabel, saleLabel, statusLabel, timeLabel } from "../format";
+import { addedLabel, dateLabel, priceLabel, saleLabel, statusLabel, timeLabel } from "../format";
 import type { EventView } from "../types";
 
-export function EventCard({ event, onOpen, onQuick, sharedBy }: {
+export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
   event: EventView; onOpen: () => void; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
+  /** Added in the last 7 days: gets a New pill, a highlight and "Added …" text. */
+  isNew?: boolean; now?: number;
 }) {
+  const added = isNew ? addedLabel(event.createdAt, now ?? Date.now()) : undefined;
   const [, mon, day] = event.date.split("-");
   const price = priceLabel(event);
   const status = event.rsvp?.status;
   const lineup = (event.lineup ?? []).filter((a) => a.name !== event.title).map((a) => a.name);
   return (
-    <li className={`card ${status ?? "undecided"}`}>
-      <button className="card-main" onClick={onOpen} aria-label={`${event.title}, ${dateLabel(event.date)}. Open details`}>
+    <li className={`card ${status ?? "undecided"}${isNew ? " isnew" : ""}`}>
+      <button className="card-main" onClick={onOpen} aria-label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. Open details`}>
         <span className="datebox" aria-hidden="true">
           <span className="dow">{dateLabel(event.date, { weekday: "short" })}</span>
           <span className="day">{day}</span>
           <span className="mon">{dateLabel(`2000-${mon}-01`, { month: "short" })}</span>
         </span>
         <span className="info">
-          <span className="title">{event.title}</span>
+          <span className="title">{event.title}{isNew && <span className="new-pill">New</span>}</span>
           {lineup.length > 0 && <span className="sub">with {lineup.slice(0, 3).join(", ")}{lineup.length > 3 ? ` +${lineup.length - 3}` : ""}</span>}
           <span className="sub">{event.venue ? `${event.venue.name}${event.venue.city ? ` · ${event.venue.city}` : ""}` : "Venue TBA"}</span>
           <span className="meta">
             <span>{timeLabel(event)}</span>
             {price && <span>{price}</span>}
             {event.saleStatus && event.saleStatus !== "unknown" && <span className={`tag sale-${event.saleStatus}`}>{saleLabel[event.saleStatus]}</span>}
+            {added && <span>Added {added}</span>}
             {sharedBy && <span className="tag">from {sharedBy}</span>}
           </span>
         </span>

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { op } from "../api";
 import { EventCard } from "../components/EventCard";
 import { EventDrawer } from "../components/EventDrawer";
-import { monthKey, monthLabel } from "../format";
+import { isNewEvent, monthKey, monthLabel } from "../format";
 import type { EventView, VenueRow } from "../types";
 
 type Tab = "undecided" | "going" | "interested" | "past" | "all";
@@ -21,6 +21,9 @@ export function EventsPage({ events, venues, reload, error, loading }: {
   const [venueId, setVenueId] = useState("");
   const [open, setOpen] = useState<string | "new" | undefined>();
   const [quickError, setQuickError] = useState<string>();
+  const [onlyNew, setOnlyNew] = useState(false);
+  // One reference time per data load, so the 7-day window does not shift while you browse.
+  const nowMs = useMemo(() => Date.now(), [events]); // eslint-disable-line react-hooks/exhaustive-deps
   const today = new Date().toISOString().slice(0, 10);
 
   const counts = useMemo(() => ({
@@ -45,11 +48,15 @@ export function EventsPage({ events, venues, reload, error, loading }: {
     return tab === "past" ? [...list].reverse() : list;
   }, [events, tab, q, venueId, today]);
 
+  // Shows added in the last 7 days are lifted out of the month groups into a section of their own at the top.
+  const added = useMemo(() => shown.filter((e) => isNewEvent(e.createdAt, nowMs)), [shown, nowMs]);
+  const rest = useMemo(() => shown.filter((e) => !isNewEvent(e.createdAt, nowMs)), [shown, nowMs]);
+
   const groups = useMemo(() => {
     const m = new Map<string, EventView[]>();
-    for (const e of shown) m.set(monthKey(e.date), [...(m.get(monthKey(e.date)) ?? []), e]);
+    for (const e of rest) m.set(monthKey(e.date), [...(m.get(monthKey(e.date)) ?? []), e]);
     return [...m.entries()];
-  }, [shown]);
+  }, [rest]);
 
   async function quick(e: EventView, status: "going" | "interested" | "skipped") {
     setQuickError(undefined);
@@ -82,14 +89,36 @@ export function EventsPage({ events, venues, reload, error, loading }: {
 
       {(error || quickError) && <p role="alert" className="error">{error ?? quickError}</p>}
       {loading && !events.length && <p className="muted">Loading shows…</p>}
-      {!loading && !shown.length && (
+      {!loading && !(onlyNew ? added : shown).length && (
         <div className="empty">
-          <p><strong>{events.length ? "Nothing matches here." : "No shows yet."}</strong></p>
-          <p className="muted">{events.length ? "Try another tab or clear the search." : "Ask Claude to find concerts and add them with Show Manager, or add one yourself."}</p>
+          {onlyNew ? (
+            <>
+              <p><strong>Nothing was added in the last 7 days here.</strong></p>
+              <p className="muted">This only looks at the tab, search and venue you have selected.</p>
+              <button className="btn" onClick={() => setOnlyNew(false)}>Show all shows</button>
+            </>
+          ) : (
+            <>
+              <p><strong>{events.length ? "Nothing matches here." : "No shows yet."}</strong></p>
+              <p className="muted">{events.length ? "Try another tab or clear the search." : "Ask Claude to find concerts and add them with Show Manager, or add one yourself."}</p>
+            </>
+          )}
         </div>
       )}
 
-      {groups.map(([key, list]) => (
+      {added.length > 0 && (
+        <section aria-labelledby="added-h">
+          <div className="sect">
+            <h2 id="added-h">✦ Added this week · {added.length}</h2>
+            <button className="link" aria-pressed={onlyNew} onClick={() => setOnlyNew((v) => !v)}>{onlyNew ? "Show all" : "Show only new"}</button>
+          </div>
+          <ul className="cards">
+            {added.map((e) => <EventCard key={e.id} event={e} isNew now={nowMs} onOpen={() => setOpen(e.id)} onQuick={(s) => quick(e, s)} />)}
+          </ul>
+        </section>
+      )}
+
+      {!onlyNew && groups.map(([key, list]) => (
         <section key={key} aria-labelledby={`m-${key}`}>
           <h2 className="month" id={`m-${key}`}>{monthLabel(key)}</h2>
           <ul className="cards">

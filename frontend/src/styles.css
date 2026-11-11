@@ -150,3 +150,9 @@ table { width: 100%; border-collapse: collapse; } th, td { text-align: left; pad
 a.btn { text-decoration: none; display: inline-flex; align-items: center; }
 main.centered { padding: 1rem; }
 .field { display: grid; gap: .3rem; }
+
+/* Newly added shows (added in the last 7 days) */
+.new-pill { margin-left: .5rem; vertical-align: middle; background: var(--accent); color: var(--accent-text); font-size: .7rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; padding: .15rem .5rem; border-radius: 999px; white-space: nowrap; }
+.card.isnew { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent), var(--shadow); }
+.sect { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin: 1.2rem 0 .6rem; }
+.sect h2 { margin: 0; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }

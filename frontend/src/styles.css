@@ -69,12 +69,35 @@ main.centered { min-height: 80vh; display: grid; place-content: center; text-ali
 
 .toolbar { display: flex; gap: .75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar h1 { margin: 0; }
-.tabs { display: flex; gap: .25rem; overflow-x: auto; padding-bottom: 2px; max-width: 100%; }
-.tabs button { font: inherit; font-weight: 600; border: 0; background: transparent; color: var(--muted); padding: .45rem .8rem; border-radius: 999px; cursor: pointer; white-space: nowrap; min-height: 38px; }
-.tabs button.on { background: var(--text); color: var(--bg); }
-.tabs .count { margin-left: .4rem; font-size: .75rem; opacity: .75; }
+.tabs { display: flex; gap: .25rem; overflow-x: auto; padding-bottom: 2px; max-width: 100%; min-width: 0; }
+.tabs button { font: inherit; font-weight: 600; border: 1px solid transparent; background: transparent; color: var(--muted); padding: .45rem .8rem; border-radius: 999px; cursor: pointer; white-space: nowrap; min-height: 38px; display: inline-flex; gap: .45rem; align-items: center; }
+.tabs button:hover:not(.on) { color: var(--text); }
+.tabs .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--c); flex: none; }
+.tabs .count { font-size: .75rem; opacity: .8; }
+/* The selected tab takes its status colour, like the RSVP badges on the cards. */
+.tabs button.on { background: color-mix(in srgb, var(--c) 18%, var(--surface)); border-color: color-mix(in srgb, var(--c) 55%, transparent); color: var(--c); }
+.tabs button.on.neutral { background: var(--text); border-color: var(--text); color: var(--bg); }
 .filters { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
 .filters input[type="search"] { min-width: 14rem; }
+
+/* Shows filter bar: tabs + add, search + venue, then genre chips */
+.filterbar { display: grid; gap: .7rem .6rem; margin-bottom: 1rem; grid-template-columns: minmax(0, 1fr) 13rem auto; grid-template-areas: "tabs tabs add" "search venue venue" "chips chips chips"; align-items: center; }
+.fb-add { grid-area: add; justify-self: end; } .fb-search { grid-area: search; min-width: 0; } .fb-venue { grid-area: venue; min-width: 0; }
+.gchips { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+.gchips-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-right: .15rem; }
+/* Unselected genres stay quiet: outline, muted text, a small colour dot. Selecting one fills it with the genre colour. */
+.gchip { font: inherit; font-weight: 600; font-size: .8rem; border-radius: 999px; padding: .28rem .7rem; min-height: 32px; display: inline-flex; gap: .45rem; align-items: center; white-space: nowrap; cursor: pointer;
+  background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.gchip[style]::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: hsl(var(--h) 55% 55%); flex: none; }
+.gchip .n { font-weight: 500; opacity: .7; }
+.gchip:hover:not([aria-pressed="true"]) { color: var(--text); background: hsl(var(--h, 0) var(--gp-s) var(--gp-bg-l) / .5); }
+.gchip.all:hover:not([aria-pressed="true"]), .gchip.more:hover { background: var(--surface-2); }
+.gchip[aria-pressed="true"][style] { background: hsl(var(--h) 55% 36%); border-color: hsl(var(--h) 55% 36%); color: #fff; font-weight: 800; }
+.gchip[aria-pressed="true"][style]::before { background: #fff; }
+.gchip[aria-pressed="true"][style] .n { opacity: .9; }
+.gchip.all[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+.gchip.zero:not([aria-pressed="true"]) { opacity: .5; }
+.gchip.more { border-style: dashed; }
 .month { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1.5rem 0 .6rem; }
 
 .cards { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
@@ -139,6 +162,9 @@ table { width: 100%; border-collapse: collapse; } th, td { text-align: left; pad
 @media (max-width: 640px) {
   .grid-4 { grid-template-columns: 1fr 1fr; } .grid-3 { grid-template-columns: 1fr; }
   .filters input[type="search"] { min-width: 0; flex: 1 1 100%; }
+  /* Phones: tabs scroll sideways, search is full width, venue and Add event share a row. */
+  .filterbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "tabs tabs" "search search" "venue add" "chips chips"; }
+  .gchips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
   dialog.modal, dialog.modal.wide { width: 100vw; } .modal-body { border-radius: 0; min-height: 100dvh; }
   .top { gap: .5rem; } .top nav a { padding: .4rem .55rem; }
 }
@@ -192,3 +218,4 @@ main.centered { padding: 1rem; }
   .card.ev .acts { grid-column: 1 / -1; justify-content: flex-start; }
   .card.ev .acts-btns { justify-content: flex-start; }
 }
+.gchip { flex: none; }

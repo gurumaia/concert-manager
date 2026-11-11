@@ -57,3 +57,69 @@ describe("EventsPage: added this week", () => {
     expect(screen.queryByText(/^New · /)).toBeNull();
   });
 });
+
+describe("EventsPage: genre filter", () => {
+  const g = (id: string, title: string, genre: string | undefined, rsvp = false): EventView =>
+    ev(id, title, future(10 + Number(id)), 30, { genre, ...(rsvp ? { rsvp: { eventId: id, status: "going", sharedWith: [], createdAt: "", updatedAt: "" } } : {}) });
+  const list = [
+    g("1", "Slayer", "Thrash metal"), g("2", "Metallica", "Heavy metal"), g("3", "ZZ Top", "Rock"),
+    g("4", "Dead Fish", "Hardcore punk"), g("5", "Booked Rock Band", "Rock", true), g("6", "No Genre", undefined),
+  ];
+  const chip = (name: RegExp) => screen.getByRole("button", { name });
+
+  it("offers one chip per genre with counts for the current tab, and no chip for shows without a genre", () => {
+    renderPage(list);
+    expect(chip(/^Rock, 1 show here/)).toBeTruthy(); // 2 rocks overall, one of them already decided
+    expect(chip(/^Thrash metal, 1 show/)).toBeTruthy();
+    const group = screen.getByRole("group", { name: "Filter by genre" });
+    expect(within(group).queryByText(/No Genre/)).toBeNull();
+    expect(within(group).getAllByRole("button")).toHaveLength(1 + 4); // All genres + Rock, Thrash metal, Heavy metal, Hardcore punk
+    fireEvent.click(screen.getByRole("tab", { name: /All/ }));
+    expect(chip(/^Rock, 2 shows here/)).toBeTruthy();
+  });
+
+  it("filters to the selected genres (any of them), and 'All genres' clears it", () => {
+    renderPage(list);
+    fireEvent.click(chip(/^Rock,/));
+    expect(screen.getByText("ZZ Top")).toBeTruthy();
+    expect(screen.queryByText("Slayer")).toBeNull();
+    fireEvent.click(chip(/^Thrash metal,/));
+    expect(screen.getByText("Slayer")).toBeTruthy();
+    expect(screen.getByText("ZZ Top")).toBeTruthy();
+    expect(screen.queryByText("Dead Fish")).toBeNull();
+    expect(chip(/^Rock,/).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "All genres" }));
+    expect(screen.getByText("Dead Fish")).toBeTruthy();
+    expect(chip(/^Rock,/).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("keeps a selected genre visible and dimmed when the tab has none, and offers to clear it from the empty state", () => {
+    renderPage(list);
+    fireEvent.click(chip(/^Rock,/));
+    fireEvent.click(screen.getByRole("tab", { name: /Interested/ })); // nobody is interested in anything
+    expect(chip(/^Rock, 0 shows here/).className).toContain("zero");
+    fireEvent.click(screen.getByRole("button", { name: "Clear genre filter" }));
+    expect(chip(/^Rock,/).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("collapses a long genre list behind '+N more' but never hides a selected one", () => {
+    const many = Array.from({ length: 12 }, (_, i) => g(String(i + 1), `Show ${i + 1}`, `Genre${String.fromCharCode(65 + i)}`));
+    renderPage(many);
+    expect(screen.getByRole("button", { name: "+4 more" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^GenreL,/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "+4 more" }));
+    fireEvent.click(chip(/^GenreL,/));
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(chip(/^GenreL,/).getAttribute("aria-pressed")).toBe("true"); // still shown
+  });
+});
+
+describe("EventsPage: status tabs", () => {
+  it("colours each status tab, with All neutral", () => {
+    renderPage();
+    const style = (re: RegExp) => screen.getByRole("tab", { name: re }).getAttribute("style") ?? "";
+    expect(style(/Going/)).toContain("--going");
+    expect(style(/Interested/)).toContain("--interested");
+    expect(screen.getByRole("tab", { name: /All/ }).className).toContain("neutral");
+  });
+});

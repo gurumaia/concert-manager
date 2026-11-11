@@ -49,7 +49,12 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
 
   const price = priceLabel(event);
   return (
-    <Modal title={event.title} onClose={onClose} wide>
+    <Modal
+      title={event.title}
+      onClose={onClose}
+      wide
+      actions={!readOnly ? <button className="btn small" onClick={() => setMode("edit")}>Edit</button> : undefined}
+    >
       <div className="detail">
         <p className="lead">{dateLabel(event.date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {timeLabel(event)}</p>
         {event.venue ? (
@@ -95,12 +100,11 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
       {readOnly && event.rsvp && <p className="panel">Status: <strong>{event.rsvp.status}</strong>{event.rsvp.companions?.length ? ` · with ${event.rsvp.companions.join(", ")}` : ""}</p>}
 
       {!readOnly && (
-        <div className="actions spread">
+        <div className="actions">
           <button className="btn danger" onClick={async () => {
             if (!confirm(`Delete “${event.title}”? Its RSVP and calendar entry are removed too.`)) return;
             try { await op("delete_event", { eventId: event.id }); onChanged(); onClose(); } catch (e) { setError((e as Error).message); }
           }}>Delete event</button>
-          <button className="btn" onClick={() => setMode("edit")}>Edit event</button>
         </div>
       )}
       {error && <p role="alert" className="error">{error}</p>}

@@ -164,6 +164,7 @@ dialog.modal.wide { width: min(720px, 100vw); }
 dialog.modal::backdrop { background: rgba(10, 8, 6, .6); }
 .modal-body { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; padding: 1rem 1.1rem 1.25rem; max-height: calc(100dvh - 2rem); overflow: auto; }
 .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: .5rem; } .modal-head h2 { font-size: 1.25rem; margin: 0; overflow-wrap: anywhere; }
+.modal-head-actions { display: flex; align-items: center; gap: .5rem; flex-shrink: 0; }
 
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: .6rem; margin: 0 0 1rem; }
 .stats div { background: var(--surface-2); border-radius: 10px; padding: .6rem .8rem; } .stats dt { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; } .stats dd { margin: 0; font-size: 1.4rem; font-weight: 700; }

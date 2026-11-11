@@ -19,17 +19,197 @@ describe(`events and venues [${kind}]`, () => {
     expect(bare.event.venue).toBeNull();
   });
 
-  it("skips duplicates in bulk and reports failures", async () => {
-    const { svc, me } = (await setup());
+  it("bulk: creates, updates in place, reports unchanged and failed", async () => {
+    const { svc, me } = await setup();
     await svc.createEvent(me, friedman);
     const r = await svc.bulkCreateEvents(me, [
-      friedman,
+      friedman, // identical: unchanged
+      { ...friedman, doorsTime: "18:30", genre: "Metal" }, // same show with new data: updated
       { title: "New one", date: "2026-12-05" },
       { title: "Bad venue", date: "2026-12-06", venueId: "nope" },
     ]);
     expect(r.created.map((e) => e.title)).toEqual(["New one"]);
-    expect(r.skipped).toHaveLength(1);
+    expect(r.unchanged).toHaveLength(1);
+    expect(r.updated).toHaveLength(1);
+    expect(r.updated[0]?.changedFields.sort()).toEqual(["doorsTime", "genre"]);
     expect(r.failed[0]?.error).toMatch(/not found/);
+  });
+
+  describe("duplicates are upserted", () => {
+    it("same venue and date is the same show even with a different title; given fields win, omitted ones stay", async () => {
+      const { svc, me } = await setup();
+      const a = (await svc.createEvent(me, { ...friedman, notes: "my note", genre: "Metal" })).event;
+      const r = await svc.createEvent(me, { title: "Marty Friedman - Drum Tour", date: friedman.date, venueId: a.venueId, startTime: "20:30", tiers: [{ name: "Pista", price: 320 }] });
+      expect(r).toMatchObject({ created: false, updated: true, matchedBy: "venue_and_date", duplicateOf: a.id });
+      expect(r.changedFields.sort()).toEqual(["startTime", "tiers", "title"]);
+      expect(r.event.title).toBe("Marty Friedman - Drum Tour");
+      expect(r.event.startTime).toBe("20:30");
+      expect(r.event.doorsTime).toBe("19:00"); // omitted, kept
+      expect(r.event.notes).toBe("my note");
+      expect(r.event.lineup).toHaveLength(2);
+      expect((await svc.listEvents(me)).total).toBe(1);
+    });
+
+    it("reports no change for a resubmission, and does not bump updatedAt", async () => {
+      const { svc, me } = await setup();
+      const a = (await svc.createEvent(me, friedman)).event;
+      const r = await svc.createEvent(me, { ...friedman, title: "MARTY friedman" });
+      expect(r).toMatchObject({ created: false, updated: false, changedFields: [] });
+      expect(r.event.title).toBe("Marty Friedman"); // casing alone is not a change
+      expect(r.event.updatedAt).toBe(a.updatedAt);
+    });
+
+    it("same title and date matches when a venue is unknown, and fills the venue in", async () => {
+      const { svc, me } = await setup();
+      const a = (await svc.createEvent(me, { title: "Angra", date: "2026-11-28" })).event;
+      const r = await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Vibra" } });
+      expect(r).toMatchObject({ updated: true, matchedBy: "title_and_date", duplicateOf: a.id });
+      expect(r.event.venue?.name).toBe("Vibra");
+      expect(r.changedFields).toEqual(["venueId"]);
+    });
+
+    it("a show that changes venue is moved, not duplicated, and the calendar location follows", async () => {
+      const s = await setup();
+      await connectCalendar(s);
+      const a = (await s.svc.createEvent(s.me, { title: "Angra", date: "2026-11-28", startTime: "20:30", venue: { name: "Vibra", address: "Av. Nações Unidas 17955" } })).event;
+      await s.svc.setRsvp(s.me, a.id, { status: "going" });
+      const r = await s.svc.createEvent(s.me, { title: "Angra", date: "2026-11-28", venue: { name: "Cult Club", address: "Rua Augusta 1" } });
+      expect(r).toMatchObject({ created: false, updated: true, matchedBy: "title_and_date_venue_changed", duplicateOf: a.id });
+      expect(r.venueChanged).toMatchObject({ from: { name: "Vibra" }, to: { name: "Cult Club" } });
+      expect(r.event.rsvp?.status).toBe("going");
+      expect((await s.svc.listEvents(s.me)).total).toBe(1);
+      expect([...s.calendar.events.values()][0]?.body.location).toContain("Cult Club");
+      expect(s.calendar.events.size).toBe(1);
+      // moving to an existing venue by id works too
+      const vibra = (await s.svc.listVenues(s.me)).find((v) => v.name === "Vibra")!;
+      const back = await s.svc.createEvent(s.me, { title: "angra", date: "2026-11-28", venueId: vibra.id });
+      expect(back.venueChanged).toMatchObject({ from: { name: "Cult Club" }, to: { name: "Vibra" } });
+    });
+
+    it("does not treat a move as a duplicate when it is ambiguous, in the past, contradicts the lineup or has another title", async () => {
+      const { svc, me } = await setup();
+      // different title: a different show
+      await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Vibra" } });
+      expect((await svc.createEvent(me, { title: "Angra Tour 2026", date: "2026-11-28", venue: { name: "Cult Club" } })).created).toBe(true);
+      // lineups that share no act: a different show
+      await svc.createEvent(me, { title: "Jazz Night", date: "2026-12-05", venue: { name: "Blue Note" }, lineup: [{ name: "Trio A" }] });
+      expect((await svc.createEvent(me, { title: "Jazz Night", date: "2026-12-05", venue: { name: "Bourbon St" }, lineup: [{ name: "Quartet B" }] })).created).toBe(true);
+      // with a shared act it is the same show that moved
+      expect((await svc.createEvent(me, { title: "Jazz Night", date: "2026-12-05", venue: { name: "Vibra" }, lineup: [{ name: "trio a" }, { name: "Guest" }] })).matchedBy).toBe("title_and_date_venue_changed");
+      // past shows never move
+      await svc.createEvent(me, { title: "Old Gig", date: "2025-05-01", venue: { name: "Vibra" } });
+      expect((await svc.createEvent(me, { title: "Old Gig", date: "2025-05-01", venue: { name: "Cult Club" } })).created).toBe(true);
+    });
+
+    it("never moves a show twice in one batch: same title at two venues on one day stay two shows", async () => {
+      const { svc, me } = await setup();
+      const r = await svc.bulkCreateEvents(me, [
+        { title: "Festival", date: "2026-11-28", venue: { name: "Vibra" } },
+        { title: "Festival", date: "2026-11-28", venue: { name: "Cult Club" } },
+      ]);
+      expect(r.created).toHaveLength(2);
+      expect(r.updated).toHaveLength(0);
+      // with two candidates left over, a later single submission is ambiguous and creates a third rather than guessing
+      const later = await svc.createEvent(me, { title: "Festival", date: "2026-11-28", venue: { name: "Bourbon St" } });
+      expect(later.created).toBe(true);
+    });
+
+    it("bulk reports moved shows in updated[].venueChanged", async () => {
+      const { svc, me } = await setup();
+      await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Vibra" } });
+      const r = await svc.bulkCreateEvents(me, [{ title: "Angra", date: "2026-11-28", venue: { name: "Cult Club" } }]);
+      expect(r.updated[0]?.venueChanged).toMatchObject({ from: { name: "Vibra" }, to: { name: "Cult Club" } });
+      expect(r.updated[0]?.changedFields).toEqual(["venueId"]);
+    });
+
+    it("ifDuplicate=skip leaves the stored event alone", async () => {
+      const { svc, me } = await setup();
+      await svc.createEvent(me, friedman);
+      const r = await svc.createEvent(me, { ...friedman, startTime: "23:00" }, "skip");
+      expect(r).toMatchObject({ created: false, updated: false });
+      expect(r.event.startTime).toBe("21:00");
+      // skip also leaves a show that would have moved where it is
+      const moved = await svc.createEvent(me, { ...friedman, venue: { name: "Cult Club" } }, "skip");
+      expect(moved).toMatchObject({ created: false, updated: false, matchedBy: "title_and_date_venue_changed" });
+      expect(moved.event.venue?.name).toBe("Tokio Marine Hall");
+    });
+
+    it("pushes the change to the calendar entry of a show you are going to", async () => {
+      const s = await setup();
+      await connectCalendar(s);
+      const { event } = await s.svc.createEvent(s.me, friedman);
+      await s.svc.setRsvp(s.me, event.id, { status: "going" });
+      const r = await s.svc.createEvent(s.me, { ...friedman, startTime: "20:00" });
+      expect(r.updated).toBe(true);
+      expect(r.calendar?.status).toBe("synced");
+      expect([...s.calendar.events.values()][0]?.body.start).toMatchObject({ dateTime: "2026-11-11T20:00:00" });
+      expect(s.calendar.events.size).toBe(1);
+      expect(r.event.rsvp?.status).toBe("going"); // the RSVP survives
+    });
+  });
+
+  describe("venue matching", () => {
+    it("matches a shorter or longer name of the same venue instead of creating another", async () => {
+      const { svc, me } = await setup();
+      const club = await svc.createVenue(me, { name: "Fabrique Club", city: "São Paulo" });
+      const r = await svc.createEvent(me, { title: "Show A", date: "2026-12-01", venue: { name: "Fabrique" } });
+      expect(r.event.venueId).toBe(club.id);
+      expect(r.venueNote).toMatchObject({ given: "Fabrique", matched: "Fabrique Club", id: club.id });
+      expect(r.venueCreated).toBeUndefined();
+      const r2 = await svc.createEvent(me, { title: "Show B", date: "2026-12-02", venue: { name: "fabrique club ", city: "São Paulo" } });
+      expect(r2.event.venueId).toBe(club.id);
+      expect(r2.venueNote).toBeUndefined(); // exact, nothing to flag
+      const r3 = await svc.createEvent(me, { title: "Show C", date: "2026-12-03", venue: { name: "Blue Note" } });
+      await svc.createEvent(me, { title: "Show D", date: "2026-12-04", venue: { name: "Blue Note SP" } });
+      expect((await svc.listVenues(me)).map((v) => v.name).sort()).toEqual(["Blue Note", "Fabrique Club"]);
+      expect(r3.venueCreated?.name).toBe("Blue Note");
+    });
+
+    it("does not merge different venues that only share a generic word, or the same name in another city", async () => {
+      const { svc, me } = await setup();
+      await svc.createVenue(me, { name: "Casa Natura Musical", city: "São Paulo" });
+      await svc.createEvent(me, { title: "A", date: "2026-12-01", venue: { name: "Casa Rock" } });
+      await svc.createVenue(me, { name: "Vibra", city: "São Paulo" });
+      await svc.createEvent(me, { title: "B", date: "2026-12-02", venue: { name: "Vibra Rio", city: "Rio de Janeiro" } });
+      const r = await svc.createEvent(me, { title: "C", date: "2026-12-03", venue: { name: "Vibra", city: "Rio de Janeiro" } });
+      expect(r.venueCreated).toBeUndefined(); // exact name wins over city here
+      expect((await svc.listVenues(me)).map((v) => v.name).sort()).toEqual(["Casa Natura Musical", "Casa Rock", "Vibra", "Vibra Rio"]);
+    });
+
+    it("asks for a venueId when a name fits several venues, and creates nothing", async () => {
+      const { svc, me } = await setup();
+      const a = await svc.createVenue(me, { name: "Teatro Bradesco Sao Paulo" });
+      await svc.createVenue(me, { name: "Teatro Bradesco Rio" });
+      const r = await svc.bulkCreateEvents(me, [{ title: "X", date: "2026-12-01", venue: { name: "Bradesco" } }, { title: "Y", date: "2026-12-01", venueId: a.id }]);
+      expect(r.failed[0]?.error).toMatch(/could be .*Teatro Bradesco Rio.*Teatro Bradesco Sao Paulo.*Pass venueId/);
+      expect(r.created.map((e) => e.title)).toEqual(["Y"]);
+      expect((await svc.listVenues(me))).toHaveLength(2);
+      expect((await svc.listEvents(me)).total).toBe(1);
+    });
+
+    it("bulk reports created venues and similar-name matches for review", async () => {
+      const { svc, me } = await setup();
+      await svc.createVenue(me, { name: "Fabrique Club" });
+      const r = await svc.bulkCreateEvents(me, [
+        { title: "A", date: "2026-12-01", venue: { name: "Fabrique" } },
+        { title: "B", date: "2026-12-02", venue: { name: "Fabrique" } },
+        { title: "C", date: "2026-12-03", venue: { name: "Brand New Hall" } },
+      ]);
+      expect(r.venuesMatchedBySimilarName).toEqual([{ given: "Fabrique", matched: "Fabrique Club", id: expect.any(String) }]);
+      expect(r.venuesCreated.map((v) => v.name)).toEqual(["Brand New Hall"]);
+    });
+
+    it("creates a new venue only when it is needed: a duplicate at a known venue creates none", async () => {
+      const { svc, me } = await setup();
+      await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Vibra" } });
+      const before = (await svc.listVenues(me)).length;
+      await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Vibra" }, notes: "x" });
+      expect((await svc.listVenues(me)).length).toBe(before);
+      // a move to a brand-new venue creates that venue once, and leaves the old one (with no shows) in place
+      const r = await svc.createEvent(me, { title: "Angra", date: "2026-11-28", venue: { name: "Totally Different Place" } });
+      expect(r.venueChanged?.to.name).toBe("Totally Different Place");
+      expect((await svc.listVenues(me)).map((v) => `${v.name}:${v.eventCount}`).sort()).toEqual(["Totally Different Place:1", "Vibra:0"]);
+    });
   });
 
   it("filters: undecided, text over lineup, date range; sorted by date", async () => {

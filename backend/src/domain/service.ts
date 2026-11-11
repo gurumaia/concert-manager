@@ -32,6 +32,24 @@ export type EventWithVenueInput = EventInput & { venue?: VenueInput };
 export type Patch<T> = { [K in keyof T]?: T[K] | null };
 export type SyncResult = { status: "synced" | "removed" | "skipped" | "error"; message?: string };
 export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null };
+type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
+type VenueNote = { given: string; matched: string; id: string; how: "similar" };
+type VenueResolution = { id?: string; pending?: VenueInput; note?: VenueNote };
+export type UpsertResult = {
+  event: EventView;
+  created: boolean;
+  /** An existing event matched and was changed. */
+  updated: boolean;
+  changedFields: string[];
+  duplicateOf?: string;
+  matchedBy?: MatchedBy;
+  /** The show moved: it matched on title and date at a different venue, so its venue was changed. */
+  venueChanged?: { from: { id: string; name: string } | null; to: { id: string; name: string } };
+  /** The venue name given was matched to an existing venue with a different (similar) name. */
+  venueNote?: VenueNote;
+  venueCreated?: { id: string; name: string };
+  calendar?: SyncResult;
+};
 
 export type ServiceDeps = {
   repo: Repo;
@@ -44,6 +62,17 @@ export type ServiceDeps = {
 
 const norm = (s: string) =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+// Words that do not identify a venue ("Fabrique" and "Fabrique Club" are the same place; "Casa Natura" and "Casa Rock" are not).
+const GENERIC_VENUE_WORDS = new Set([
+  "club", "clube", "hall", "casa", "teatro", "theatre", "theater", "arena", "espaco", "espacio", "bar", "pub", "house", "live",
+  "music", "musical", "sala", "estadio", "ginasio", "centro", "de", "do", "da", "dos", "das", "the", "of", "e", "and", "&",
+]);
+const coreTokens = (s: string) =>
+  norm(s).replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t && !GENERIC_VENUE_WORDS.has(t));
+
+/** Stands in for the id of a venue that is about to be created. */
+const NEW_VENUE = "\u0000new-venue";
 
 export class Service {
   private repo: Repo;
@@ -165,53 +194,168 @@ export class Service {
     return v;
   }
 
-  private async resolveVenueId(ctx: Ctx, input: { venueId?: string; venue?: VenueInput }): Promise<string | undefined> {
+  /** Closest existing venue for a name: exact (ignoring case/accents) first, then a unique "same core name" match. */
+  private async matchVenue(ctx: Ctx, name: string, city?: string): Promise<{ venue: Venue; how: "exact" | "similar" } | undefined> {
+    const venues = await this.repo.listVenues(ctx.userId);
+    const n = norm(name);
+    const exact = venues.filter((v) => norm(v.name) === n);
+    if (exact.length) {
+      return { venue: exact.find((v) => city && v.city && norm(v.city) === norm(city)) ?? exact[0]!, how: "exact" };
+    }
+    const core = coreTokens(name);
+    if (!core.length) return undefined;
+    const similar = venues.filter((v) => {
+      if (city && v.city && norm(v.city) !== norm(city)) return false; // different city: a different venue
+      const other = coreTokens(v.name);
+      if (!other.length) return false;
+      const [small, big] = core.length <= other.length ? [core, other] : [other, core];
+      return small.every((t) => big.includes(t));
+    });
+    if (similar.length > 1) {
+      throw new AppError(
+        "conflict",
+        `Venue "${name}" could be ${[...similar].sort((x, y) => x.name.localeCompare(y.name)).map((v) => `"${v.name}" (id ${v.id})`).join(" or ")}. Pass venueId to choose.`,
+      );
+    }
+    return similar[0] ? { venue: similar[0], how: "similar" } : undefined;
+  }
+
+  /**
+   * Work out which venue an event input refers to WITHOUT creating anything yet: a venueId is used as is, a name is matched
+   * against existing venues, and only an unmatched name is left `pending` (created later, once we know it is needed).
+   */
+  private async resolveVenue(ctx: Ctx, input: { venueId?: string; venue?: VenueInput }): Promise<VenueResolution> {
     if (input.venueId) {
       await this.mustVenue(ctx, input.venueId);
-      return input.venueId;
+      return { id: input.venueId };
     }
     if (input.venue) {
-      const found = await this.findVenueByName(ctx, input.venue.name, input.venue.city);
-      if (found) return found.id;
-      return (await this.createVenue(ctx, input.venue)).id;
+      const m = await this.matchVenue(ctx, input.venue.name, input.venue.city);
+      if (m) return { id: m.venue.id, note: m.how === "similar" ? { given: input.venue.name, matched: m.venue.name, id: m.venue.id, how: "similar" } : undefined };
+      return { pending: input.venue };
     }
-    return undefined;
+    return {};
+  }
+
+  private async materializeVenue(ctx: Ctx, r: VenueResolution): Promise<{ id?: string; created?: Venue }> {
+    if (r.id || !r.pending) return { id: r.id };
+    const created = await this.createVenue(ctx, r.pending);
+    return { id: created.id, created };
   }
 
   // ----------------------------------------------------------------- events
-  async createEvent(ctx: Ctx, input: EventWithVenueInput): Promise<{ event: EventView; created: boolean; duplicateOf?: string }> {
-    const { venue: _venue, ...rest } = input;
-    const venueId = await this.resolveVenueId(ctx, input);
-    const dup = await this.findDuplicate(ctx, rest.title, rest.date, venueId);
-    if (dup) return { event: await this.view(ctx, dup), created: false, duplicateOf: dup.id };
+  /**
+   * Add an event, or update the existing one when this is a duplicate. Duplicate means: same date at the same venue, or same
+   * date and title where either venue is unknown. On a duplicate (mode "update", the default) the fields you pass overwrite the
+   * stored ones and the rest are left alone; mode "skip" changes nothing.
+   */
+  async createEvent(ctx: Ctx, input: EventWithVenueInput, mode: "update" | "skip" = "update", protect: Set<string> = new Set()): Promise<UpsertResult> {
+    const { venue: _venue, venueId: _vid, ...rest } = input;
+    const res = await this.resolveVenue(ctx, input);
+    // A venue name that matched nothing is a venue we know is new: it must not look "unknown" and match another venue's show.
+    const found = await this.findDuplicate(ctx, rest.title, rest.date, res.id ?? (res.pending ? NEW_VENUE : undefined), rest.lineup, protect);
+
+    if (found) {
+      // Skip mode never changes anything, including the venue of a show that moved.
+      if (mode === "skip") {
+        return { event: await this.view(ctx, found.event), created: false, updated: false, changedFields: [], duplicateOf: found.event.id, matchedBy: found.by, venueNote: res.note };
+      }
+      const moved = found.by === "title_and_date_venue_changed";
+      const patch = await this.upsertPatch(ctx, found.event, rest, res, moved);
+      const venueNote = res.note;
+      if (!Object.keys(patch).length) {
+        return { event: await this.view(ctx, found.event), created: false, updated: false, changedFields: [], duplicateOf: found.event.id, matchedBy: found.by, venueNote };
+      }
+      protect.add(found.event.id);
+      const oldVenue = found.event.venueId ? await this.repo.getVenue(ctx.userId, found.event.venueId) : undefined;
+      const r = await this.updateEvent(ctx, found.event.id, patch);
+      const venueChanged = "venueId" in patch && r.event.venue && r.event.venueId !== found.event.venueId
+        ? { from: oldVenue ? { id: oldVenue.id, name: oldVenue.name } : null, to: { id: r.event.venue.id, name: r.event.venue.name } }
+        : undefined;
+      return { event: r.event, created: false, updated: true, changedFields: Object.keys(patch), duplicateOf: found.event.id, matchedBy: found.by, venueNote, venueChanged, calendar: r.calendar };
+    }
+
+    const { id: venueId, created: venueCreated } = await this.materializeVenue(ctx, res);
     const now = this.now();
     const e: ShowEvent = { ...stripUndefined(rest), venueId, id: randomUUID(), createdAt: now, updatedAt: now };
     await this.repo.putEvent(ctx.userId, e);
-    return { event: await this.view(ctx, e), created: true };
+    protect.add(e.id);
+    return {
+      event: await this.view(ctx, e), created: true, updated: false, changedFields: [],
+      venueNote: res.note, venueCreated: venueCreated ? { id: venueCreated.id, name: venueCreated.name } : undefined,
+    };
   }
 
-  /** Add many events; events matching an existing date + title (+ venue) are skipped, not duplicated. */
-  async bulkCreateEvents(ctx: Ctx, inputs: EventWithVenueInput[]) {
+  /** Fields of `incoming` that differ from the stored event. Omitted fields never clear anything. */
+  private async upsertPatch(ctx: Ctx, existing: ShowEvent, incoming: Omit<EventInput, "venueId">, res: VenueResolution, moved: boolean): Promise<Patch<EventWithVenueInput>> {
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(stripUndefined(incoming))) {
+      if (k === "title") {
+        if (norm(String(v)) !== norm(existing.title)) patch.title = v;
+        continue;
+      }
+      if (JSON.stringify((existing as Record<string, unknown>)[k]) !== JSON.stringify(v)) patch[k] = v;
+    }
+    const venueId = res.id ?? (res.pending && (!existing.venueId || moved) ? (await this.materializeVenue(ctx, res)).id : undefined);
+    if (venueId && venueId !== existing.venueId) patch.venueId = venueId;
+    return patch as Patch<EventWithVenueInput>;
+  }
+
+  /**
+   * Add many events (up to 100). Duplicates are updated in place (see createEvent) rather than rejected; the result lists what
+   * was created, updated, left unchanged or failed, and which venues were created or matched by a similar name.
+   */
+  async bulkCreateEvents(ctx: Ctx, inputs: EventWithVenueInput[], mode: "update" | "skip" = "update") {
     const created: EventView[] = [];
-    const skipped: Array<{ title: string; date: string; duplicateOf: string }> = [];
+    const updated: Array<{ event: EventView; changedFields: string[]; matchedBy?: string; venueChanged?: UpsertResult["venueChanged"] }> = [];
+    const unchanged: Array<{ title: string; date: string; duplicateOf: string; matchedBy?: string }> = [];
     const failed: Array<{ title: string; date: string; error: string }> = [];
+    const venuesCreated: Array<{ id: string; name: string }> = [];
+    const venuesMatchedBySimilarName: Array<{ given: string; matched: string; id: string }> = [];
+    // Shows touched earlier in this batch are never moved by a later entry: "Festival" at two venues on one day is two shows.
+    const protect = new Set<string>();
     for (const i of inputs) {
       try {
-        const r = await this.createEvent(ctx, i);
+        const r = await this.createEvent(ctx, i, mode, protect);
         if (r.created) created.push(r.event);
-        else skipped.push({ title: i.title, date: i.date, duplicateOf: r.duplicateOf! });
+        else if (r.updated) updated.push({ event: r.event, changedFields: r.changedFields, matchedBy: r.matchedBy, venueChanged: r.venueChanged });
+        else unchanged.push({ title: i.title, date: i.date, duplicateOf: r.duplicateOf!, matchedBy: r.matchedBy });
+        if (r.venueCreated && !venuesCreated.some((v) => v.id === r.venueCreated!.id)) venuesCreated.push(r.venueCreated);
+        const n = r.venueNote;
+        if (n && !venuesMatchedBySimilarName.some((x) => x.id === n.id && x.given === n.given)) venuesMatchedBySimilarName.push({ given: n.given, matched: n.matched, id: n.id });
       } catch (err) {
         failed.push({ title: i.title, date: i.date, error: (err as Error).message });
       }
     }
-    return { created, skipped, failed };
+    return { created, updated, unchanged, failed, venuesCreated, venuesMatchedBySimilarName };
   }
 
-  private async findDuplicate(ctx: Ctx, title: string, date: string, venueId?: string, ignoreId?: string) {
+  /**
+   * The existing show this input refers to, if any:
+   *  1. same date at the same venue;
+   *  2. same date and title, when either venue is unknown;
+   *  3. a show that MOVED: same date and exact title at a different venue. Only when it is unambiguous (one candidate), still in
+   *     the future, not already touched by this batch, and the lineups do not contradict each other.
+   */
+  private async findDuplicate(ctx: Ctx, title: string, date: string, venueId?: string, lineup?: EventInput["lineup"], protect: Set<string> = new Set(), ignoreId?: string): Promise<{ event: ShowEvent; by: MatchedBy } | undefined> {
+    const sameDay = (await this.repo.listEvents(ctx.userId)).filter((e) => e.id !== ignoreId && e.date === date);
+    if (venueId) {
+      const byVenue = sameDay.find((e) => e.venueId === venueId);
+      if (byVenue) return { event: byVenue, by: "venue_and_date" };
+    }
     const t = norm(title);
-    return (await this.repo.listEvents(ctx.userId)).find(
-      (e) => e.id !== ignoreId && e.date === date && norm(e.title) === t && (!venueId || !e.venueId || e.venueId === venueId),
-    );
+    const byTitle = sameDay.find((e) => norm(e.title) === t && (!venueId || !e.venueId || e.venueId === venueId));
+    if (byTitle) return { event: byTitle, by: "title_and_date" };
+
+    if (date < this.now().slice(0, 10)) return undefined; // past shows do not move
+    const names = (l?: EventInput["lineup"]) => new Set((l ?? []).map((a) => norm(a.name)));
+    const mine = names(lineup);
+    const moved = sameDay.filter((e) => {
+      if (protect.has(e.id) || norm(e.title) !== t || !e.venueId) return false;
+      const theirs = names(e.lineup);
+      return !mine.size || !theirs.size || [...mine].some((n) => theirs.has(n));
+    });
+    return moved.length === 1 ? { event: moved[0]!, by: "title_and_date_venue_changed" } : undefined;
   }
 
   async updateEvent(ctx: Ctx, id: string, patch: Patch<EventWithVenueInput>) {
@@ -220,7 +364,9 @@ export class Service {
     const { venue, venueId: wantedVenueId, ...rest } = patch;
     let venueId = e.venueId;
     if (wantedVenueId === null) venueId = undefined;
-    else if (wantedVenueId || venue) venueId = await this.resolveVenueId(ctx, { venueId: wantedVenueId, venue: venue ?? undefined });
+    else if (wantedVenueId || venue) {
+      venueId = (await this.materializeVenue(ctx, await this.resolveVenue(ctx, { venueId: wantedVenueId, venue: venue ?? undefined }))).id;
+    }
     const next = { ...applyPatch(e, rest), venueId, id, updatedAt: this.now() } as ShowEvent;
     await this.repo.putEvent(ctx.userId, next);
     const sync = await this.syncRsvp(ctx, id);

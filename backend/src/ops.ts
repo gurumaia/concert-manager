@@ -61,20 +61,32 @@ export const ops: Op[] = [
     run: (s, c, i) => s.getEvent(c, i.eventId),
   }),
   op({
-    name: "create_event", title: "Create event",
+    name: "create_event", title: "Create or update event",
     description:
-      "Add one event. Only title and date are required; fill in whatever is known. Pass `venue` (name + address etc.) to find-or-create the venue by name. " +
-      "If an event with the same date and title already exists it is returned instead of duplicating (created=false).",
-    input: EventWithVenue,
-    run: (s, c, i) => s.createEvent(c, i),
+      "Add one event, or update it if it already exists (upsert). Only title and date are required; fill in whatever is known. " +
+      "VENUE: prefer venueId (call list_venues first and reuse its ids). If you only have a name, pass `venue` {name, city?, address?...}: it is matched to an existing venue " +
+      "(ignoring case, accents and words like Club/Hall/Teatro, so 'Fabrique' finds 'Fabrique Club'; a different city never matches), and a new venue is created only if nothing matches. " +
+      "The result says venueNote when a similar name was matched and venueCreated when a venue was created, so check them. An ambiguous name returns an error listing the candidates: retry with venueId. " +
+      "DUPLICATES: an event on the same date at the same venue (or with the same title and date when a venue is unknown) is the same show. Its stored fields are updated with the ones you pass; fields you omit are kept. " +
+      "MOVED SHOWS: a future show with the same date and exact title at a different venue is treated as the same show that moved, and its venue is changed (result.venueChanged lists from/to) " +
+      "unless several shows match, or both lineups are given and share no act. To keep two same-titled shows apart, give them different lineups or titles. " +
+      "The result has created, updated, changedFields and duplicateOf. Pass ifDuplicate='skip' to leave an existing event untouched instead.",
+    input: EventWithVenue.extend({ ifDuplicate: z.enum(["update", "skip"]).optional().describe("What to do when the show already exists. Default: update") }),
+    run: (s, c, { ifDuplicate, ...i }) => s.createEvent(c, i, ifDuplicate ?? "update"),
   }),
   op({
-    name: "bulk_create_events", title: "Create many events",
+    name: "bulk_create_events", title: "Create or update many events",
     description:
-      "Add many events in one call (up to 100), e.g. after scraping a venue or ticketing site. Duplicates (same date + title) are skipped and reported. " +
-      "Returns created, skipped and failed lists. Afterwards call list_events with rsvp='none' to present the candidates.",
-    input: z.object({ events: z.array(EventWithVenue).min(1).max(100) }),
-    run: (s, c, i) => s.bulkCreateEvents(c, i.events),
+      "Add many events in one call (up to 100), e.g. after scraping a venue or ticketing site. Each one follows create_event: venues are matched by id or similar name, " +
+      "and a show that already exists (same date at the same venue, or the same title and date at another venue, which means it moved) is updated in place with the fields given. " +
+      "Entries in one call never move each other, so two same-titled shows at different venues on one day stay separate. " +
+      "Returns created, updated (with changedFields), unchanged, failed, venuesCreated and venuesMatchedBySimilarName: review the last two for mistakes. " +
+      "Pass venueId when you know it (list_venues first). Afterwards call list_events with rsvp='none' to present the candidates.",
+    input: z.object({
+      events: z.array(EventWithVenue).min(1).max(100),
+      ifDuplicate: z.enum(["update", "skip"]).optional().describe("What to do with shows that already exist. Default: update"),
+    }),
+    run: (s, c, i) => s.bulkCreateEvents(c, i.events, i.ifDuplicate ?? "update"),
   }),
   op({
     name: "update_event", title: "Update event",

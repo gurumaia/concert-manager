@@ -4,7 +4,7 @@ import { AppError, type Ctx, type Service } from "./domain/service.js";
 import { ops } from "./ops.js";
 
 const INSTRUCTIONS = `Show Manager tracks concerts the user might attend.
-Typical flow: create events (bulk_create_events after researching/scraping; pass venue name + address so venues are reused),
+Typical flow: list_venues, then create events (bulk_create_events after researching/scraping; pass venueId for known venues, or a venue name + address; re-sending a show that exists updates it),
 list_events with rsvp='none' to present undecided candidates grouped by date/venue, then set_rsvp for the ones the user picks.
 'going' (also used once tickets are bought) puts the show on the user's Google Calendar; connect it first with calendar_connect.
 Dates are YYYY-MM-DD and times HH:MM in the venue's local time. Most fields are optional: leave unknown ones out rather than guessing.`;

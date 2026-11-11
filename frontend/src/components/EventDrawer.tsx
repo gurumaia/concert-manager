@@ -34,8 +34,8 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
               const r = await op<{ event: EventView }>("update_event", { eventId: event.id, changes: input });
               setEvent(r.event); setMode("view");
             } else {
-              const r = await op<{ event: EventView; created: boolean }>("create_event", input);
-              if (!r.created) throw new Error("An event with this title and date already exists.");
+              const r = await op<{ event: EventView; created: boolean }>("create_event", { ...input, ifDuplicate: "skip" });
+              if (!r.created) throw new Error("A show on this date at this venue already exists. Find it in the list to edit it.");
               onChanged(); onClose(); return;
             }
             onChanged();

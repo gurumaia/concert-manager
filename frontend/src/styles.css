@@ -244,3 +244,91 @@ main.centered { padding: 1rem; }
 .undobar { position: sticky; bottom: .5rem; z-index: 5; display: flex; align-items: center; gap: .6rem; margin: .6rem 0; padding: .5rem .5rem .5rem .9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
 .undobar > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .notice { margin: .5rem 0; padding: .5rem .8rem; border-radius: 8px; background: var(--interested-bg); color: var(--interested); }
+
+/* History: overview of every attended show, then a ledger grouped by year. */
+.hist-span { margin: 0; }
+.hist-stats { display: flex; flex-wrap: wrap; gap: .5rem 1.75rem; margin: .5rem 0 1rem; }
+.hist-stats div { display: flex; flex-direction: column; }
+.hist-stats dd { margin: 0; font-size: 1.6rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.hist-stats dt { color: var(--muted); font-size: .85rem; }
+.hist-bars { display: flex; align-items: flex-end; gap: 4px; height: 120px; margin-top: 1.25rem; }
+.hist-bars button { all: unset; box-sizing: border-box; flex: 1; min-width: 0; position: relative; cursor: pointer; border-radius: 5px 5px 2px 2px;
+  background: color-mix(in srgb, var(--attended) 35%, var(--surface-2)); }
+.hist-bars button:hover:not(:disabled), .hist-bars button.on { background: var(--attended); }
+.hist-bars button:disabled { cursor: default; background: var(--surface-2); }
+.hist-bars button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.hist-bars button span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-size: .65rem; color: var(--muted); padding-bottom: 2px; }
+.hist-axis { display: flex; gap: 4px; font-size: .65rem; color: var(--muted); margin-top: .2rem; }
+.hist-axis span { flex: 1; text-align: center; min-width: 0; }
+.hist-two { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.25rem 0; }
+.hist-top { padding: .9rem 1rem; }
+.hist-top h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .5rem; }
+.hist-top ol { list-style: none; margin: 0; padding: 0; }
+.hist-top li { margin-bottom: .35rem; }
+.hist-top button { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; gap: .6rem; width: 100%; cursor: pointer; font-size: .9rem; border-radius: 4px; }
+.hist-top button:hover span { text-decoration: underline; }
+.hist-top button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.hist-top i { font-style: normal; color: var(--muted); flex: none; }
+.hist-top .bar { display: block; height: 4px; border-radius: 3px; background: var(--surface-2); margin-top: .2rem; }
+.hist-top .bar u { display: block; height: 100%; border-radius: 3px; background: var(--attended); }
+.hist-filters { margin: 1rem 0 .5rem; }
+.hist-filters input[type="search"] { flex: 1 1 14rem; width: auto; }
+.hist-filters select { flex: 0 0 auto; width: auto; }
+.hist-layout { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+.hist-rail { position: sticky; top: 4.4rem; display: grid; gap: .1rem; max-height: calc(100vh - 5.5rem); overflow-y: auto; padding-bottom: 1rem; }
+.hist-rail a { display: flex; justify-content: space-between; gap: .4rem; padding: .25rem .5rem; border-radius: 7px; color: var(--muted); text-decoration: none;
+  font-size: .85rem; font-variant-numeric: tabular-nums; }
+.hist-rail a:hover { background: var(--surface-2); color: var(--text); }
+.hist-rail a[aria-current="true"] { background: var(--surface-2); color: var(--text); font-weight: 700; box-shadow: inset 3px 0 0 var(--attended); }
+.hist-rail i { font-style: normal; opacity: .6; }
+.hist-section { scroll-margin-top: 3.4rem; }
+.hist-year { display: flex; align-items: baseline; gap: .75rem; position: sticky; top: 3.4rem; z-index: 5; background: var(--bg); padding: .6rem 0 .3rem;
+  border-bottom: 1px solid var(--border); margin-top: 1.25rem; }
+.hist-year h2 { margin: 0; font-size: 2rem; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.hist-list { list-style: none; margin: 0; padding: 0; }
+.hist-row { all: unset; box-sizing: border-box; display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: .9rem; align-items: center; width: 100%;
+  padding: .65rem .3rem; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); border-radius: 8px; }
+.hist-row:hover { background: var(--surface-2); }
+.hist-row:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.hist-row .hd { text-align: center; line-height: 1.05; }
+.hist-row .hd b { display: block; font-size: 1.25rem; }
+.hist-row .hd span { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.hist-row .hi { display: flex; flex-direction: column; min-width: 0; }
+.hist-row .ht { font-weight: 650; overflow-wrap: anywhere; }
+.hist-row .hs { font-size: .85rem; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .hist-two { grid-template-columns: 1fr; }
+  .hist-layout { grid-template-columns: 1fr; } .hist-rail { display: none; }
+  .hist-row { grid-template-columns: 3rem minmax(0, 1fr); }
+  .hist-row .hs-side { grid-column: 2; justify-content: flex-start; }
+  .hist-bars { gap: 2px; } .hist-axis { gap: 2px; font-size: .55rem; }
+}
+
+/* History: who I went with. Avatars use the genre colour tokens so they follow light and dark. */
+.avatar { --h: 0; display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; flex: none; font-size: .72rem; font-weight: 700;
+  background: hsl(var(--h) var(--gp-s) var(--gp-bg-l)); color: hsl(var(--h) var(--gp-s) var(--gp-fg-l)); border: 1px solid hsl(var(--h) var(--gp-s) var(--gp-bd-l)); }
+.avatar.more { --h: 0; background: var(--surface-2); color: var(--muted); border-color: var(--border); font-size: .65rem; }
+.avatars { display: inline-flex; }
+.avatars .avatar { margin-left: -.4rem; box-shadow: 0 0 0 2px var(--bg); } .avatars .avatar:first-child { margin-left: 0; }
+.hist-row:hover .avatars .avatar { box-shadow: 0 0 0 2px var(--surface-2); }
+.hs-side { display: flex; align-items: center; gap: .6rem; justify-content: flex-end; min-width: 0; }
+.hist-people { padding: .8rem 1rem; margin-top: 1rem; }
+.hist-people h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .55rem; }
+.hist-chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+.hist-chips button { --h: 0; font: inherit; display: inline-flex; align-items: center; gap: .5rem; min-height: 40px; padding: .2rem .8rem .2rem .3rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.hist-chips button:hover { background: var(--surface-2); }
+.hist-chips button.on { border-color: hsl(var(--h) 60% 50%); background: color-mix(in srgb, hsl(var(--h) 60% 50%) 14%, var(--surface)); }
+.hist-chips b { font-weight: 600; } .hist-chips i { font-style: normal; color: var(--muted); font-size: .85rem; }
+.hist-chips .alone { --h: 220; } .hist-chips .alone .avatar { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+.hist-chips .alone.on { border-color: var(--muted); background: var(--surface-2); }
+.hist-chips .ghost { border-color: transparent; background: transparent; color: var(--muted); padding: .2rem .6rem; }
+.hist-together { margin: .75rem 0 0; }
+/* Chart overlay: the coloured part of a bar is the share of that year's shows with the chosen person. */
+.hist-bars button.split { background: color-mix(in srgb, var(--attended) 18%, var(--surface-2)); }
+.hist-bars button em { position: absolute; left: 0; right: 0; bottom: 0; background: var(--who, var(--muted)); border-radius: 5px 5px 2px 2px; }
+.hist-bars button.split.on { outline: 2px solid var(--text); outline-offset: 1px; }
+.hist-bars button.split:hover:not(:disabled) { background: color-mix(in srgb, var(--attended) 30%, var(--surface-2)); }
+.hist-legend { display: flex; gap: 1rem; margin: .5rem 0 0; }
+.hist-legend u { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; text-decoration: none; background: color-mix(in srgb, var(--attended) 18%, var(--surface-2)); }
+.hist-legend u.mine { background: var(--who, var(--muted)); }

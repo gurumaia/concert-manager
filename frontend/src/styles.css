@@ -285,7 +285,7 @@ main.centered { padding: 1rem; }
 .hist-filters input[type="search"] { flex: 1 1 14rem; width: auto; }
 .hist-filters select { flex: 0 0 auto; width: auto; }
 .hist-layout { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
-.hist-rail { position: sticky; top: 4.4rem; display: grid; gap: .1rem; max-height: calc(100vh - 5.5rem); overflow-y: auto; padding-bottom: 1rem; }
+.hist-rail { position: sticky; top: 4.4rem; display: grid; gap: .1rem; max-height: calc(100vh - 5.5rem); overflow-x: hidden; overflow-y: auto; min-width: 0; padding-bottom: 1rem; }
 .hist-rail a { display: flex; justify-content: space-between; gap: .4rem; padding: .25rem .5rem; border-radius: 7px; color: var(--muted); text-decoration: none;
   font-size: .85rem; font-variant-numeric: tabular-nums; }
 .hist-rail a:hover { background: var(--surface-2); color: var(--text); }

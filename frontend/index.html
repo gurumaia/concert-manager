@@ -3,9 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#14110f" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf7f3" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14110f" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23e5484d'/><path d='M10 22V10l12-2v12' stroke='white' stroke-width='2.4' fill='none'/><circle cx='8.5' cy='22' r='2.5' fill='white'/><circle cx='20.5' cy='20' r='2.5' fill='white'/></svg>" />
     <title>Show Manager</title>
+    <script>
+      // Apply a saved theme choice before the first paint, so there is no flash of the wrong theme.
+      try {
+        var t = localStorage.getItem("sm.theme");
+        if (t === "light" || t === "dark") {
+          document.documentElement.dataset.theme = t;
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.setAttribute("content", t === "light" ? "#faf7f3" : "#14110f"); });
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

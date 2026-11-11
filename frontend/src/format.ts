@@ -67,3 +67,28 @@ export function addedLabel(createdAt: string, nowMs: number): string {
   const days = Math.floor(elapsed / DAY_MS);
   return days === 1 ? "1 day ago" : `${days} days ago`;
 }
+
+// Genre colours: related genres share a hue ("Thrash metal" and "Heavy metal" look alike); anything unknown gets a stable hue
+// from its name, so a genre keeps its colour everywhere and between visits. First matching family wins, so "Blues rock" is a blues.
+const GENRE_FAMILIES: Array<[RegExp, number]> = [
+  [/metal|thrash|doom|grindcore|deathcore/, 355],
+  [/punk|hardcore|emo|ska|hc\b/, 305],
+  [/blues/, 215],
+  [/jazz|soul|funk|r&b|rnb|motown/, 265],
+  [/rock|grunge|alternative|indie|shoegaze/, 28],
+  [/pop|k-?pop|disco/, 335],
+  [/electronic|edm|techno|house|trance|dance|drum.?and.?bass/, 190],
+  [/hip.?hop|rap|trap|r&b/, 48],
+  [/classical|orchestr|opera|symphon|chamber/, 245],
+  [/samba|pagode|mpb|bossa|forro|forró|axe|axé|sertanejo|baile|funk carioca|latin|reggaeton|salsa/, 95],
+  [/folk|country|acoustic|bluegrass|singer/, 70],
+  [/reggae|dub/, 140],
+];
+
+export function genreHue(genre: string): number {
+  const g = genre.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  for (const [re, hue] of GENRE_FAMILIES) if (re.test(g)) return hue;
+  let h = 0;
+  for (const ch of g.trim()) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return h;
+}

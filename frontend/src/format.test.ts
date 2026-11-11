@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addedLabel, dateLabel, isNewEvent, monthKey, priceLabel, timeLabel } from "./format";
+import { addedLabel, dateLabel, genreHue, isNewEvent, monthKey, priceLabel, timeLabel } from "./format";
 
 describe("format", () => {
   it("formats dates without time-zone drift", () => {
@@ -39,5 +39,24 @@ describe("newly added events", () => {
     expect(addedLabel(ago(25 * H), now)).toBe("1 day ago");
     expect(addedLabel(ago(3 * 24 * H + H), now)).toBe("3 days ago");
     expect(addedLabel(ago(-5 * H), now)).toBe("just now"); // clock skew never shows a negative time
+  });
+});
+
+describe("genreHue", () => {
+  it("shares a colour across a family and ignores case and accents", () => {
+    expect(genreHue("Thrash metal")).toBe(genreHue("HEAVY METAL"));
+    expect(genreHue("Hardcore punk")).toBe(genreHue("Punk"));
+    expect(genreHue("Forró")).toBe(genreHue("forro"));
+  });
+  it("tells different families apart; blues rock reads as blues, not rock", () => {
+    expect(new Set([genreHue("Metal"), genreHue("Rock"), genreHue("Jazz"), genreHue("Pop"), genreHue("Electronic")]).size).toBe(5);
+    expect(genreHue("Blues rock")).toBe(genreHue("Blues"));
+    expect(genreHue("Blues rock")).not.toBe(genreHue("Rock"));
+  });
+  it("gives an unknown genre a stable hue in range", () => {
+    const h = genreHue("Zydeco");
+    expect(h).toBe(genreHue("zydeco"));
+    expect(h).toBeGreaterThanOrEqual(0);
+    expect(h).toBeLessThan(360);
   });
 });

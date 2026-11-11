@@ -24,11 +24,10 @@ describe("EventsPage: added this week", () => {
     renderPage();
     const section = screen.getByRole("region", { name: /Added this week · 1/ }); // "To decide" tab: only Fresh Show is both new and undecided
     expect(within(section).getByText("Fresh Show")).toBeTruthy();
-    expect(within(section).getByText("New")).toBeTruthy();
-    expect(within(section).getByText("Added 2 days ago")).toBeTruthy();
+    expect(within(section).getByText("New · 2 days ago")).toBeTruthy();
     // the old show stays in its month group, unmarked
     expect(screen.getByText("Old Show")).toBeTruthy();
-    expect(screen.getAllByText("New")).toHaveLength(1);
+    expect(screen.getAllByText(/^New · /)).toHaveLength(1);
   });
 
   it("shows only new shows from the current tab, and goes back", () => {
@@ -55,6 +54,6 @@ describe("EventsPage: added this week", () => {
   it("shows no section when nothing is new", () => {
     renderPage([ev("2", "Old Show", future(20), 30)]);
     expect(screen.queryByRole("region", { name: /Added this week/ })).toBeNull();
-    expect(screen.queryByText("New")).toBeNull();
+    expect(screen.queryByText(/^New · /)).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { op } from "../api";
 import { logout } from "../auth";
+import { getTheme, setTheme, type Theme } from "../theme";
 import { money } from "../format";
 import type { CalendarStatus, Stats } from "../types";
 
@@ -15,6 +16,7 @@ export function SettingsPage({ me }: { me?: { email?: string; name?: string } })
   const [msg, setMsg] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [theme, setThemeState] = useState<Theme>(getTheme);
   const flag = new URLSearchParams(location.search).get("calendar");
 
   const load = useCallback(async () => {
@@ -107,6 +109,15 @@ export function SettingsPage({ me }: { me?: { email?: string; name?: string } })
             )}
           </>
         )}
+      </section>
+
+      <section className="panel" aria-labelledby="look-h">
+        <h2 id="look-h">Appearance</h2>
+        <div className="seg" role="group" aria-label="Theme">
+          {([["system", "Match my device"], ["light", "Light"], ["dark", "Dark"]] as Array<[Theme, string]>).map(([t, label]) => (
+            <button key={t} className={`seg-btn theme ${theme === t ? "on" : ""}`} aria-pressed={theme === t} onClick={() => { setTheme(t); setThemeState(t); }}>{label}</button>
+          ))}
+        </div>
       </section>
 
       <section className="panel" aria-labelledby="acct-h">

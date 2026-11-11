@@ -1,0 +1,31 @@
+{
+  "name": "show-manager-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node build.mjs",
+    "dev": "tsx src/local.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.1165.0",
+    "@aws-sdk/client-dynamodb": "3.1165.0",
+    "@aws-sdk/client-kms": "3.1165.0",
+    "@aws-sdk/client-ssm": "3.1165.0",
+    "@aws-sdk/lib-dynamodb": "3.1165.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "hono": "4.13.17",
+    "jose": "6.2.17",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@hono/node-server": "2.1.6",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "5.1.0"
+  }
+}

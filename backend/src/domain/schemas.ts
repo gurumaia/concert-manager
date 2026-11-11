@@ -1,0 +1,108 @@
+import { z } from "zod";
+
+/** YYYY-MM-DD */
+export const DateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "use YYYY-MM-DD");
+/** HH:MM, 24h, venue local time */
+export const TimeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "use HH:MM (24h)");
+const Email = z.string().email().transform((s) => s.trim().toLowerCase());
+
+export const Act = z.object({
+  name: z.string().min(1),
+  role: z.enum(["headliner", "support", "opener", "guest"]).optional(),
+  startTime: TimeStr.optional().describe("Set time for this act, if known"),
+});
+export type Act = z.infer<typeof Act>;
+
+export const Tier = z.object({
+  name: z.string().min(1).describe("e.g. Pista, Cadeira Inferior, VIP, Meia"),
+  price: z.number().nonnegative().optional().describe("Face value, without fees"),
+  fee: z.number().nonnegative().optional().describe("Service fee on top of price, shown separately"),
+  currency: z.string().length(3).optional().describe("ISO 4217, defaults to the event currency"),
+  notes: z.string().optional(),
+});
+export type Tier = z.infer<typeof Tier>;
+
+export const SaleStatus = z.enum(["unknown", "announced", "on_sale", "sold_out", "cancelled", "postponed"]);
+
+// ---- Venue ----
+export const VenueInput = z.object({
+  name: z.string().min(1),
+  address: z.string().optional().describe("Street address; used as the native Google Calendar location"),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  country: z.string().optional(),
+  timezone: z.string().optional().describe("IANA zone, e.g. America/Sao_Paulo"),
+  capacity: z.number().int().positive().optional(),
+  website: z.string().url().optional(),
+  mapsUrl: z.string().url().optional(),
+  notes: z.string().optional(),
+});
+export type VenueInput = z.infer<typeof VenueInput>;
+export type Venue = VenueInput & { id: string; createdAt: string; updatedAt: string };
+
+// ---- Event ----
+export const EventInput = z.object({
+  title: z.string().min(1),
+  date: DateStr,
+  doorsTime: TimeStr.optional(),
+  startTime: TimeStr.optional(),
+  endTime: TimeStr.optional(),
+  venueId: z.string().optional().describe("Id of an existing venue; or pass `venue` to find-or-create by name"),
+  lineup: z.array(Act).optional().describe("All acts on the bill, headliner first"),
+  tiers: z.array(Tier).optional(),
+  currency: z.string().length(3).optional().describe("Default currency for tiers, defaults to BRL"),
+  ticketUrl: z.string().url().optional(),
+  sourceUrl: z.string().url().optional().describe("Where this event was found"),
+  genre: z.string().optional(),
+  ageRating: z.string().optional(),
+  saleStatus: SaleStatus.optional(),
+  onSaleDate: DateStr.optional(),
+  description: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type EventInput = z.infer<typeof EventInput>;
+export type ShowEvent = Omit<EventInput, "venueId"> & {
+  id: string;
+  venueId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ---- RSVP ----
+export const RsvpStatus = z.enum(["interested", "going", "skipped", "attended"]);
+export type RsvpStatus = z.infer<typeof RsvpStatus>;
+
+export const RsvpInput = z.object({
+  status: RsvpStatus,
+  tierName: z.string().optional(),
+  quantity: z.number().int().positive().optional().describe("Number of tickets"),
+  pricePaid: z.number().nonnegative().optional().describe("Total ticket price paid, without fees"),
+  feesPaid: z.number().nonnegative().optional(),
+  companions: z.array(z.string()).optional().describe("Who is going along"),
+  notes: z.string().optional(),
+});
+export type RsvpInput = z.infer<typeof RsvpInput>;
+export type Rsvp = RsvpInput & {
+  eventId: string;
+  sharedWith: string[];
+  calendarId?: string;
+  calendarEventId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export { Email };
+
+// ---- User ----
+export type UserProfile = {
+  id: string;
+  email?: string;
+  name?: string;
+  calendar?: {
+    connectedAs?: string;
+    refreshTokenEnc: string;
+    calendarId?: string;
+    calendarName?: string;
+  };
+  createdAt: string;
+};

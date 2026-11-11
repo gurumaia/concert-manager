@@ -11,6 +11,7 @@ await build({
   target: "node22",
   format: "esm",
   minify: true,
+  loader: { ".html": "text" },
   external: ["@aws-sdk/*"],
   banner: { js: "import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);" },
   logLevel: "info",

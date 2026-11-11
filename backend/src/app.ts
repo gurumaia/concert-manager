@@ -25,6 +25,8 @@ export type AppDeps = {
   idp: IdentityApi;
   /** Cognito has a Google identity provider, so the login page can offer it. */
   googleSignIn?: boolean;
+  /** The triage page served as an MCP App (ui://show-manager/triage). */
+  triageHtml?: string;
 };
 
 type Env = { Variables: { ctx: Ctx } };
@@ -207,7 +209,7 @@ export function createApp(d: AppDeps) {
   app.use("/mcp", auth("mcp"));
   app.all("/mcp", (c) => {
     if (c.req.method !== "POST") return c.json({ error: "method_not_allowed" }, 405, { allow: "POST" });
-    return handleMcpRequest(d.svc, c.get("ctx"), c.req.raw);
+    return handleMcpRequest(d.svc, c.get("ctx"), c.req.raw, { triageHtml: d.triageHtml });
   });
 
   app.use("/api/ops/*", auth("api"));

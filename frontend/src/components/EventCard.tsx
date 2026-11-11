@@ -9,8 +9,8 @@ const QUICK: Array<["going" | "interested" | "skipped", string]> = [["going", "G
  * Every card has the same slots in the same places: title (+ New) / acts / venue on the left, genre top-right and sale status
  * bottom-right, then a footer with time, price and the RSVP actions. Missing time or price shows a muted "TBA" in its slot.
  */
-export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
-  event: EventView; onOpen: () => void; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
+export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, sharedBy, isNew, now }: {
+  event: EventView; onOpen?: () => void; openLabel?: string; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
   /** Added in the last 7 days: gets a New pill and a highlight. */
   isNew?: boolean; now?: number;
 }) {
@@ -25,7 +25,7 @@ export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
 
   return (
     <li className={`card ev ${status ?? "undecided"}${isNew ? " isnew" : ""}`}>
-      <button className="card-main" onClick={onOpen} aria-label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. Open details`}>
+      <Main className="card-main" onOpen={onOpen} label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. ${openLabel}`}>
         <span className="datebox" aria-hidden="true">
           <span className="dow">{dateLabel(event.date, { weekday: "short" })}</span>
           <span className="day">{day}</span>
@@ -45,7 +45,7 @@ export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
           {genre ? <span className="genre-pill" style={{ "--h": genreHue(genre) } as CSSProperties} title={genre}>{genre}</span> : <span />}
           {sale ? <span className={`tag sale-${sale}`}>{saleLabel[sale]}</span> : <span />}
         </span>
-      </button>
+      </Main>
 
       <div className="foot">
         <span className={`line${hasTime ? "" : " tba"}`}><Icon name="clock" />{timeLabel(event)}</span>
@@ -67,4 +67,11 @@ export function EventCard({ event, onOpen, onQuick, sharedBy, isNew, now }: {
       </div>
     </li>
   );
+}
+
+/** The clickable body of a card; without an action (e.g. inside the Claude app, where there is no details drawer) it is plain content. */
+function Main({ className, onOpen, label, children }: { className: string; onOpen?: () => void; label: string; children: React.ReactNode }) {
+  return onOpen
+    ? <button className={className} onClick={onOpen} aria-label={label}>{children}</button>
+    : <div className={`${className} static`}>{children}</div>;
 }

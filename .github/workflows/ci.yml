@@ -29,6 +29,11 @@ jobs:
         working-directory: backend
       - run: npm test
         working-directory: backend
+      # the Lambda bundle inlines the MCP App page (frontend/dist-app/app.html), so build that first
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build:app
+        working-directory: frontend
       - run: npm run build
         working-directory: backend
   frontend:

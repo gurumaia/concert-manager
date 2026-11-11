@@ -20,7 +20,10 @@ while getopts "e:p:" o; do case $o in e) ENV=$OPTARG;; p) PROFILE_ARGS=(--profil
 cd "$(dirname "$0")"
 STACK="show-manager-$ENV"; REGION="${AWS_REGION:-us-east-1}"
 
-(cd backend && npm ci && npm test && npm run build)
+# the Lambda bundle inlines the MCP App page, so the frontend app bundle is built first
+(cd backend && npm ci)
+(cd frontend && npm ci && npm test && npm run build)
+(cd backend && npm test && npm run build)
 sam build --no-cached
 PARAMS=("Environment=$ENV")
 [ -n "${SIGNIN_GOOGLE_CLIENT_ID:-}" ] && PARAMS+=("SignInGoogleClientId=$SIGNIN_GOOGLE_CLIENT_ID" "SignInGoogleClientSecret=$SIGNIN_GOOGLE_CLIENT_SECRET")
@@ -30,7 +33,6 @@ sam deploy --stack-name "$STACK" --region "$REGION" "${PROFILE_ARGS[@]}" --resol
 
 out() { aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" "${PROFILE_ARGS[@]}" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
 BUCKET=$(out SiteBucketName); DIST=$(out DistributionId)
-(cd frontend && npm ci && npm test && npm run build)
 aws s3 sync frontend/dist "s3://$BUCKET" --delete "${PROFILE_ARGS[@]}"
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths '/*' "${PROFILE_ARGS[@]}" >/dev/null
 echo "Site:  $(out SiteUrl)"; echo "MCP:   $(out McpUrl)"

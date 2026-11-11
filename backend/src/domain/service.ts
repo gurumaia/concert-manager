@@ -81,7 +81,9 @@ export class Service {
     this.repo = d.repo;
     this.cal = d.calendar;
   }
-  private now = () => (this.d.now ? this.d.now() : new Date()).toISOString();
+  /** The service clock (injectable in tests). */
+  clock = () => (this.d.now ? this.d.now() : new Date());
+  private now = () => this.clock().toISOString();
 
   // ------------------------------------------------------------------ users
   /** Create the profile on first sight and keep the email current. */
@@ -290,6 +292,7 @@ export class Service {
   private async upsertPatch(ctx: Ctx, existing: ShowEvent, incoming: Omit<EventInput, "venueId">, res: VenueResolution, moved: boolean): Promise<Patch<EventWithVenueInput>> {
     const patch: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(stripUndefined(incoming))) {
+      if (k === "id" || k === "createdAt" || k === "updatedAt") continue; // bookkeeping, never taken from a re-sent show
       if (k === "title") {
         if (norm(String(v)) !== norm(existing.title)) patch.title = v;
         continue;
@@ -367,7 +370,8 @@ export class Service {
     else if (wantedVenueId || venue) {
       venueId = (await this.materializeVenue(ctx, await this.resolveVenue(ctx, { venueId: wantedVenueId, venue: venue ?? undefined }))).id;
     }
-    const next = { ...applyPatch(e, rest), venueId, id, updatedAt: this.now() } as ShowEvent;
+    // createdAt is the NEW badge: re-sending or editing a show never resets it.
+    const next = { ...applyPatch(e, rest), venueId, id, createdAt: e.createdAt, updatedAt: this.now() } as ShowEvent;
     await this.repo.putEvent(ctx.userId, next);
     const sync = await this.syncRsvp(ctx, id);
     return { event: await this.view(ctx, next), calendar: sync };

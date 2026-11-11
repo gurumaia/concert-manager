@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build --config vite.app.config.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:app": "tsc --noEmit && vite build --config vite.app.config.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
@@ -22,6 +24,7 @@
     "jsdom": "27.4.0",
     "typescript": "5.9.3",
     "vite": "7.3.8",
+    "vite-plugin-singlefile": "2.3.4",
     "vitest": "5.1.0"
   }
 }

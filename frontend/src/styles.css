@@ -236,3 +236,11 @@ main.centered { padding: 1rem; }
 .qbtn.on.going { background: var(--going-bg); border-color: var(--going); color: var(--going); }
 .qbtn.on.interested { background: var(--interested-bg); border-color: var(--interested); color: var(--interested); }
 .qbtn.on.skipped { background: var(--skipped-bg); border-color: var(--skipped); color: var(--text); }
+
+/* Inside Claude (MCP App): the page sits in a chat message, so it is tighter and has no app chrome. */
+.mcp-app main { padding: .75rem .75rem 1rem; max-width: none; }
+.card-main.static { cursor: default; }
+.card-main.static:hover { background: transparent; }
+.undobar { position: sticky; bottom: .5rem; z-index: 5; display: flex; align-items: center; gap: .6rem; margin: .6rem 0; padding: .5rem .5rem .5rem .9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.undobar > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notice { margin: .5rem 0; padding: .5rem .8rem; border-radius: 8px; background: var(--interested-bg); color: var(--interested); }

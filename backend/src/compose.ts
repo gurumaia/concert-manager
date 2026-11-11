@@ -11,7 +11,7 @@ import type { Repo } from "./domain/repo.js";
 import type { CalendarGateway } from "./domain/calendar.js";
 
 /** Wire real (or, with DEV_AUTH=1 and no TABLE_NAME, in-memory) infrastructure into the app. */
-export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo; calendar?: CalendarGateway; idp?: IdentityApi } = {}) {
+export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo; calendar?: CalendarGateway; idp?: IdentityApi; triageHtml?: string } = {}) {
   const useMemory = cfg.devAuth && !process.env.TABLE_NAME;
   const repo = overrides.repo ?? (useMemory ? new MemoryRepo() : new DynamoRepo(cfg.tableName));
   const encryptor = cfg.kmsKeyId ? new KmsEncryptor(cfg.kmsKeyId) : new PlainEncryptor();
@@ -30,5 +30,5 @@ export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo;
   });
   const idp = overrides.idp ?? new CognitoIdentity(cfg.cognitoClientId, cfg.region);
   const authenticate = cfg.devAuth ? devAuthenticator : cognitoAuthenticator(cfg, idp);
-  return { app: createApp({ cfg, svc, authenticate, google, repo, encryptor, idp, googleSignIn: cfg.googleSignIn }), svc, repo };
+  return { app: createApp({ cfg, svc, authenticate, google, repo, encryptor, idp, googleSignIn: cfg.googleSignIn, triageHtml: overrides.triageHtml }), svc, repo };
 }

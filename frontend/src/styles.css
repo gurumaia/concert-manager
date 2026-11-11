@@ -322,6 +322,10 @@ main.centered { padding: 1rem; }
 .avatars .avatar { margin-left: -.4rem; box-shadow: 0 0 0 2px var(--bg); } .avatars .avatar:first-child { margin-left: 0; }
 .hist-row:hover .avatars .avatar { box-shadow: 0 0 0 2px var(--surface-2); }
 .hs-side { display: flex; align-items: center; gap: .6rem; justify-content: flex-end; min-width: 0; }
+.hist-nudge { padding: .8rem 1rem; margin-bottom: 1rem; }
+.hist-nudge h2 { font-size: 1rem; margin: 0 0 .2rem; }
+.hist-nudge ul { list-style: none; margin: .6rem 0; padding: 0; display: grid; gap: .4rem; }
+.hist-nudge li { display: flex; justify-content: space-between; align-items: center; gap: .75rem; }
 .hist-people { padding: .8rem 1rem; margin-top: 1rem; }
 .hist-people h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .55rem; }
 .hist-chips { display: flex; flex-wrap: wrap; gap: .5rem; }

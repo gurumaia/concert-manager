@@ -75,7 +75,7 @@ describe("EventCard", () => {
   });
 
   it("shows an Attended badge instead of the buttons once the show is attended", () => {
-    card({ ...bare, rsvp: { eventId: "1", status: "attended", sharedWith: [], createdAt: "", updatedAt: "" } });
+    card({ ...bare, attended: true, past: true, rsvp: { eventId: "1", status: "going", sharedWith: [], createdAt: "", updatedAt: "" } });
     const foot = document.querySelector(".foot") as HTMLElement;
     expect(within(foot).getByText("Attended")).toBeTruthy();
     expect(within(foot).queryByRole("button", { name: "Going" })).toBeNull();

@@ -5,7 +5,7 @@ import { peopleOf, type Person } from "../history";
 import { PeopleInput } from "./PeopleInput";
 import type { EventView, RsvpStatus, SyncResult } from "../types";
 
-const STATUSES: RsvpStatus[] = ["interested", "going", "skipped", "attended"];
+const STATUSES: RsvpStatus[] = ["interested", "going", "skipped"];
 type SetRsvpResult = { rsvp: NonNullable<EventView["rsvp"]>; warnings: string[]; calendar: SyncResult };
 
 export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: () => void }) {
@@ -46,19 +46,23 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
     onChanged();
   });
 
-  const showTicketFields = r?.status === "going" || r?.status === "attended";
+  const showTicketFields = r?.status === "going";
+  // Going to a show that is over means you went, so the buttons say so; skipping it is how you say you did not.
+  const past = !!event.past;
+  const label = (s: RsvpStatus) => (past && s === "going" ? "Attended" : past && s === "skipped" ? "Didn't go" : statusLabel[s]);
 
   return (
     <section aria-labelledby="rsvp-h" className="panel">
       <h3 id="rsvp-h">Your RSVP</h3>
       <div className="seg" role="group" aria-label="RSVP status">
         {STATUSES.map((s) => (
-          <button key={s} className={`seg-btn ${r?.status === s ? `on ${s}` : ""}`} aria-pressed={r?.status === s} disabled={busy} onClick={() => save(s)}>
-            {statusLabel[s]}
+          <button key={s} className={`seg-btn ${r?.status === s ? `on ${past && s === "going" ? "attended" : s}` : ""}`} aria-pressed={r?.status === s} disabled={busy} onClick={() => save(s)}>
+            {label(s)}
           </button>
         ))}
       </div>
-      {!r && <p className="muted small">Not decided yet. Going also covers “bought tickets” and adds the show to your calendar.</p>}
+      {!r && <p className="muted small">{past ? "Pick Attended if you went. It will show up in your history." : "Not decided yet. Going also covers “bought tickets” and adds the show to your calendar."}</p>}
+      {r?.status === "going" && past && <p className="muted small">Counted as a show you went to. If you did not make it, choose Didn’t go.</p>}
 
       {msg?.warnings.map((w) => <p key={w} role="status" className="warn">⚠ {w}</p>)}
       {msg?.calendar && <CalendarNote c={msg.calendar} />}

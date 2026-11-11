@@ -90,6 +90,7 @@ export type ShowEvent = Omit<EventInput, "venueId"> & {
 };
 
 // ---- RSVP ----
+// "attended" is retired: going + a past date means you went. It is still accepted as input (saved as going) and read from old data.
 export const RsvpStatus = z.enum(["interested", "going", "skipped", "attended"]);
 export type RsvpStatus = z.infer<typeof RsvpStatus>;
 

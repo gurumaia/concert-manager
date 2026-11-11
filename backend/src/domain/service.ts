@@ -35,7 +35,11 @@ export type EventWithVenueInput = EventInput & { venue?: VenueInput };
 export type Patch<T> = { [K in keyof T]?: T[K] | null };
 export type SyncResult = { status: "synced" | "removed" | "skipped" | "error"; message?: string };
 export type SetlistActResult = { act: string; status: "found" | "not_found" | "kept_manual" | "error"; songs?: number; message?: string };
-export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null };
+/**
+ * `past`: the show's date is over where it happens. `attended`: you were going and it is past, so you went. There is no stored
+ * "attended" any more; a past show you did not go to has to be marked skipped.
+ */
+export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
 type VenueResolution = { id?: string; pending?: VenueInput; note?: VenueNote };
@@ -391,6 +395,13 @@ export class Service {
     return new Intl.DateTimeFormat("en-CA", { timeZone: venue?.timezone ?? DEFAULT_TZ }).format(this.clock());
   }
 
+  /** The one place that decides "did I go": going (or the legacy stored "attended") on a show whose date is over at its venue. */
+  private toView(e: ShowEvent, venue: Venue | null, rsvp: Rsvp | null, today: (v?: Venue) => string): EventView {
+    const r = rsvp && rsvp.status === "attended" ? { ...rsvp, status: "going" as const } : rsvp;
+    const past = e.date < today(venue ?? undefined);
+    return { ...e, venue, rsvp: r, past, attended: past && r?.status === "going" };
+  }
+
   /** Save (or, with no songs, remove) the setlist one act played. Manual setlists are never replaced by lookups. */
   async setSetlist(ctx: Ctx, eventId: string, input: SetlistInput) {
     const e = await this.mustEvent(ctx, eventId);
@@ -488,9 +499,15 @@ export class Service {
     ]);
     const rMap = new Map(rsvps.map((r) => [r.eventId, r]));
     const vMap = new Map(venues.map((v) => [v.id, v]));
+    const todayByZone = new Map<string, string>();
+    const todayIn = (v?: Venue) => {
+      const zone = v?.timezone ?? DEFAULT_TZ;
+      if (!todayByZone.has(zone)) todayByZone.set(zone, this.todayAt(v));
+      return todayByZone.get(zone)!;
+    };
     const today = this.now().slice(0, 10);
     const q = f.text ? norm(f.text) : undefined;
-    let out = events.map<EventView>((e) => ({ ...e, venue: (e.venueId && vMap.get(e.venueId)) || null, rsvp: rMap.get(e.id) ?? null }));
+    let out = events.map<EventView>((e) => this.toView(e, (e.venueId && vMap.get(e.venueId)) || null, rMap.get(e.id) ?? null, todayIn));
     out = out.filter((e) => {
       if (f.from && e.date < f.from) return false;
       if (f.to && e.date > f.to) return false;
@@ -499,7 +516,10 @@ export class Service {
       if (f.city && norm(e.venue?.city ?? "") !== norm(f.city)) return false;
       if (f.saleStatus && e.saleStatus !== f.saleStatus) return false;
       if (f.rsvp === "none" && e.rsvp) return false;
-      if (f.rsvp && f.rsvp !== "none" && f.rsvp !== "any" && e.rsvp?.status !== f.rsvp) return false;
+      // "attended" = going to a show that is over; "going" = going to one that is still ahead.
+      if (f.rsvp === "attended" && !e.attended) return false;
+      if (f.rsvp === "going" && !(e.rsvp?.status === "going" && !e.past)) return false;
+      if (f.rsvp && f.rsvp !== "none" && f.rsvp !== "any" && f.rsvp !== "attended" && f.rsvp !== "going" && e.rsvp?.status !== f.rsvp) return false;
       if (q) {
         const hay = norm([e.title, e.genre, e.venue?.name, e.venue?.city, ...(e.lineup ?? []).map((a) => a.name)].filter(Boolean).join(" "));
         if (!hay.includes(q)) return false;
@@ -525,7 +545,7 @@ export class Service {
       e.venueId ? this.repo.getVenue(ctx.userId, e.venueId) : undefined,
       this.repo.getRsvp(ctx.userId, e.id),
     ]);
-    return { ...e, venue: venue ?? null, rsvp: rsvp ?? null };
+    return this.toView(e, venue ?? null, rsvp ?? null, (v) => this.todayAt(v));
   }
 
   // ------------------------------------------------------------------- RSVP
@@ -537,6 +557,7 @@ export class Service {
     const rsvp: Rsvp = {
       ...(prev ?? { sharedWith: [], createdAt: now }),
       ...stripUndefined(input),
+      status: input.status === "attended" ? "going" : input.status, // "attended" is retired: going + a past date means you went
       eventId,
       updatedAt: now,
     };
@@ -617,7 +638,7 @@ export class Service {
   // ------------------------------------------------------------------ stats
   async stats(ctx: Ctx, opts: { year?: number } = {}) {
     const { events } = await this.listEvents(ctx, { limit: 100000 });
-    const attended = events.filter((e) => e.rsvp?.status === "attended" && (!opts.year || e.date.startsWith(String(opts.year))));
+    const attended = events.filter((e) => e.attended && (!opts.year || e.date.startsWith(String(opts.year))));
     const byVenue = new Map<string, { venueId: string | null; venue: string; city?: string; count: number }>();
     const byYear: Record<string, number> = {};
     const spent: Record<string, number> = {};
@@ -636,7 +657,7 @@ export class Service {
       attendedByVenue: [...byVenue.values()].sort((a, b) => b.count - a.count),
       attendedByYear: byYear,
       totalSpent: spent,
-      upcomingGoing: events.filter((e) => e.rsvp?.status === "going" && e.date >= today).length,
+      upcomingGoing: events.filter((e) => e.rsvp?.status === "going" && !e.past).length,
       undecidedUpcoming: events.filter((e) => !e.rsvp && e.date >= today).length,
     };
   }

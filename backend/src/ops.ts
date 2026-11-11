@@ -42,7 +42,7 @@ export const ops: Op[] = [
     name: "list_events", title: "List events", readOnly: true,
     description:
       "List events (sorted by date) with venue and the user's RSVP inline. Filter by date range, venue, city, text (matches title, lineup, genre, venue), sale status, or RSVP state. " +
-      "rsvp='none' returns events the user has not decided on yet: use it to present candidates to choose from. Defaults to 100 results; use offset to page.",
+      "rsvp='none' returns events the user has not decided on yet: use it to present candidates to choose from. rsvp='going' is shows still ahead; rsvp='attended' is shows they were going to whose date has passed (every event also carries `past` and `attended` flags). Defaults to 100 results; use offset to page.",
     input: z.object({
       from: DateStr.optional(), to: DateStr.optional(),
       upcoming: z.boolean().optional().describe("Only events today or later"),
@@ -124,8 +124,9 @@ export const ops: Op[] = [
   op({
     name: "set_rsvp", title: "RSVP to a show",
     description:
-      "Create or update the user's RSVP for an event (one per event). Status: interested, going (includes 'bought tickets'; record tier/price/fees here), skipped, attended. " +
-      "'going' and 'attended' are pushed to Google Calendar; other statuses remove the entry. Returns `warnings` when the show overlaps another show the user is going to (warn, never blocks).",
+      "Create or update the user's RSVP for an event (one per event). Status: interested, going (includes 'bought tickets'; record tier/price/fees here), skipped. " +
+      "There is no separate 'attended' status: a show you are going to counts as attended once its date has passed, so only mark it skipped if you ended up not going ('attended' is still accepted and saved as going). " +
+      "'going' is pushed to Google Calendar; other statuses remove the entry. Returns `warnings` when the show overlaps another show the user is going to (warn, never blocks).",
     input: z.object({ eventId: id }).extend(RsvpInput.shape),
     run: (s, c, { eventId, ...rsvp }) => s.setRsvp(c, eventId, rsvp),
   }),
@@ -213,7 +214,7 @@ export const ops: Op[] = [
   // ---- stats
   op({
     name: "get_stats", title: "Concert stats", readOnly: true,
-    description: "Totals for attended shows: by venue, by year, money spent (price + fees), plus upcoming going and undecided counts.",
+    description: "Totals for attended shows (going to a show whose date has passed): by venue, by year, money spent (price + fees), plus upcoming going and undecided counts.",
     input: z.object({ year: z.number().int().optional() }),
     run: (s, c, i) => s.stats(c, i),
   }),
@@ -239,13 +240,13 @@ export const ops: Op[] = [
   }),
   op({
     name: "calendar_select", title: "Select calendar",
-    description: "Choose which calendar receives the shows: pass calendarId of an existing one, or createName to make a dedicated one. Re-syncs all going/attended RSVPs to it.",
+    description: "Choose which calendar receives the shows: pass calendarId of an existing one, or createName to make a dedicated one. Re-syncs all going RSVPs to it.",
     input: z.object({ calendarId: z.string().optional(), createName: z.string().optional() }),
     run: (s, c, i) => s.calendarSelect(c, i),
   }),
   op({
     name: "calendar_resync", title: "Re-sync calendar",
-    description: "Push every going/attended RSVP to the selected calendar again (fixes entries deleted by hand).",
+    description: "Push every going RSVP to the selected calendar again (fixes entries deleted by hand).",
     input: z.object({}),
     run: (s, c) => s.resyncAll(c),
   }),

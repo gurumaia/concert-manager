@@ -351,6 +351,48 @@ describe(`stats [${kind}]`, () => {
   });
 });
 
+describe(`going + past date = attended [${kind}]`, () => {
+  it("counts only going shows whose date is over, and treats a stored or sent 'attended' as going", async () => {
+    const { svc, me, repo } = (await setup());
+    const past = (await svc.createEvent(me, { title: "Past going", date: "2026-10-01" })).event;
+    const future = (await svc.createEvent(me, { title: "Future going", date: "2026-12-01" })).event;
+    const missed = (await svc.createEvent(me, { title: "Missed", date: "2026-10-02" })).event;
+    const interested = (await svc.createEvent(me, { title: "Maybe", date: "2026-10-03" })).event;
+    const legacy = (await svc.createEvent(me, { title: "Legacy", date: "2026-10-04" })).event;
+    await svc.setRsvp(me, past.id, { status: "going" });
+    await svc.setRsvp(me, future.id, { status: "going" });
+    await svc.setRsvp(me, missed.id, { status: "skipped" });
+    await svc.setRsvp(me, interested.id, { status: "interested" });
+    const sent = await svc.setRsvp(me, legacy.id, { status: "attended" });
+    expect(sent.rsvp.status).toBe("going");
+
+    const titles = async (rsvp: "attended" | "going") => (await svc.listEvents(me, { rsvp, sort: "asc" })).events.map((e) => e.title);
+    expect(await titles("attended")).toEqual(["Past going", "Legacy"]);
+    expect(await titles("going")).toEqual(["Future going"]);
+    const st = await svc.stats(me);
+    expect(st.attendedTotal).toBe(2);
+    expect(st.upcomingGoing).toBe(1);
+
+    // Old rows stored as "attended" read back as going, and still count.
+    const old = (await svc.createEvent(me, { title: "Old row", date: "2025-01-01" })).event;
+    await repo.putRsvp(me.userId, { eventId: old.id, status: "attended", sharedWith: [], createdAt: "", updatedAt: "" });
+    const view = (await svc.getEvent(me, old.id));
+    expect(view).toMatchObject({ past: true, attended: true, rsvp: { status: "going" } });
+    expect((await svc.stats(me)).attendedTotal).toBe(3);
+  });
+
+  it("decides 'past' in the venue's own time zone", async () => {
+    const { svc, me } = (await setup()); // clock: 2026-11-10 12:00 UTC = Nov 11 in Auckland, still Nov 10 in São Paulo
+    const nz = (await svc.createEvent(me, { title: "Auckland", date: "2026-11-10", venue: { name: "Spark Arena", timezone: "Pacific/Auckland" } })).event;
+    const sp = (await svc.createEvent(me, { title: "São Paulo", date: "2026-11-10", venue: { name: "Vibra", timezone: "America/Sao_Paulo" } })).event;
+    await svc.setRsvp(me, nz.id, { status: "going" });
+    await svc.setRsvp(me, sp.id, { status: "going" });
+    expect((await svc.getEvent(me, nz.id)).attended).toBe(true);
+    expect((await svc.getEvent(me, sp.id)).attended).toBe(false);
+    expect((await svc.getEvent(me, sp.id)).past).toBe(false);
+  });
+});
+
 describe(`calendar sync [${kind}]`, () => {
   it("does nothing until connected, and the RSVP still saves", async () => {
     const { svc, me, calendar } = (await setup());

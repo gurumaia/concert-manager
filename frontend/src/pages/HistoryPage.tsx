@@ -16,6 +16,16 @@ async function loadAttended(): Promise<EventView[]> {
   }
 }
 
+const NUDGE_DAYS = 14;
+const NUDGE_KEY = "history-confirmed";
+const confirmedIds = (): string[] => { try { return JSON.parse(localStorage.getItem(NUDGE_KEY) ?? "[]"); } catch { return []; } };
+
+/** YYYY-MM-DD for `days` ago in the browser's own time zone. */
+function daysAgo(days: number) {
+  const d = new Date(Date.now() - days * 86400000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const spentLabel = (spent: Record<string, number>) => {
   const parts = Object.entries(spent).map(([cur, n]) => new Intl.NumberFormat("en-US", { style: "currency", currency: cur, maximumFractionDigits: 0 }).format(n));
   return parts.length ? parts.join(" + ") : "–";
@@ -30,6 +40,8 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
   const [who, setWho] = useState<string>(); // a person key, ALONE, or everyone
   const [allPeople, setAllPeople] = useState(false);
   const [open, setOpen] = useState<EventView>();
+  const [confirmed, setConfirmed] = useState<string[]>(confirmedIds);
+  const [nudgeBusy, setNudgeBusy] = useState(false);
 
   const load = useCallback(async () => {
     try { setEvents(await loadAttended()); setError(undefined); } catch (e) { setError((e as Error).message); }
@@ -57,6 +69,22 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
   const filtered = !!q.trim() || !!year || !!who;
   const first = sum.years[0]?.year, last = sum.years[sum.years.length - 1]?.year;
 
+  // Going to a show that has passed counts as having been there, so the last couple of weeks get a quick "did you really go?" check.
+  const recent = useMemo(() => {
+    const from = daysAgo(NUDGE_DAYS);
+    return all.filter((e) => e.date >= from && !confirmed.includes(e.id)).sort((a, b) => b.date.localeCompare(a.date));
+  }, [events, confirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function didntGo(e: EventView) {
+    setNudgeBusy(true);
+    try { await op("set_rsvp", { eventId: e.id, status: "skipped" }); await load(); void reload(); } catch (err) { setError((err as Error).message); } finally { setNudgeBusy(false); }
+  }
+  function confirmAll() {
+    const next = [...new Set([...confirmed, ...recent.map((e) => e.id)])];
+    try { localStorage.setItem(NUDGE_KEY, JSON.stringify(next)); } catch { /* private mode: it just asks again */ }
+    setConfirmed(next);
+  }
+
   if (error) return <p role="alert" className="error">{error}</p>;
   if (!events) return <p className="muted">Loading your history…</p>;
 
@@ -69,10 +97,26 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
         </div>
       </div>
 
+      {recent.length > 0 && (
+        <section className="card hist-nudge" aria-label="Recent shows to confirm">
+          <h2>Did you make these?</h2>
+          <p className="muted small">A show you were going to counts as attended once its date passes. Tell me about any you missed.</p>
+          <ul>
+            {recent.map((e) => (
+              <li key={e.id}>
+                <span><b>{e.title}</b> <span className="muted small">· {dateLabel(e.date, { month: "short", day: "numeric" })}{e.venue ? ` · ${e.venue.name}` : ""}</span></span>
+                <button className="btn small" disabled={nudgeBusy} onClick={() => void didntGo(e)} aria-label={`I didn't go to ${e.title}`}>Didn’t go</button>
+              </li>
+            ))}
+          </ul>
+          <button className="btn small ghost" onClick={confirmAll}>I went to all of these</button>
+        </section>
+      )}
+
       {sum.total === 0 ? (
         <div className="empty">
           <p><strong>No shows in your history yet.</strong></p>
-          <p className="muted">When you go to a show, open it on the Shows page and set it to “Attended”. It will show up here.</p>
+          <p className="muted">Mark a show as Going. Once its date has passed it counts as attended and shows up here.</p>
         </div>
       ) : (
         <>

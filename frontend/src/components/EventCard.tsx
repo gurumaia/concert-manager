@@ -24,7 +24,7 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
   const genre = event.genre?.trim();
 
   return (
-    <li className={`card ev ${status ?? "undecided"}${isNew ? " isnew" : ""}`}>
+    <li className={`card ev ${event.attended ? "attended" : status ?? "undecided"}${isNew ? " isnew" : ""}`}>
       <Main className="card-main" onOpen={onOpen} label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. ${openLabel}`}>
         <span className="datebox" aria-hidden="true">
           <span className="dow">{dateLabel(event.date, { weekday: "short" })}</span>
@@ -51,7 +51,7 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
         <span className={`line${hasTime ? "" : " tba"}`}><Icon name="clock" />{timeLabel(event)}</span>
         <span className={`line${price ? "" : " tba"}`}><Icon name="ticket" />{price ?? "Price TBA"}</span>
         <span className="acts">
-          {onQuick && status !== "attended" ? (
+          {onQuick && !event.attended ? (
             // All three stay quiet; only the one matching your RSVP is lit, in its status colour.
             <span role="group" aria-label={`RSVP for ${event.title}`} className="acts-btns">
               {QUICK.map(([s, label]) => (
@@ -59,7 +59,7 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
               ))}
             </span>
           ) : status ? (
-            <span className={`badge ${status}`}>{statusLabel[status]}</span>
+            <span className={`badge ${event.attended ? "attended" : status}`}>{statusLabel[event.attended ? "attended" : status]}</span>
           ) : sharedBy ? (
             <span className="tag">from {sharedBy}</span>
           ) : null}

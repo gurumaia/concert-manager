@@ -117,4 +117,26 @@ describe("HistoryPage", () => {
     expect(screen.getByRole("button", { name: /^Recent Band, .*Open details/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Old Band, .*Open details/ })).toBeNull();
   });
+
+  it("asks about shows from the last two weeks, lets you mark one as not attended, and remembers 'I went to all'", async () => {
+    const day = (ago: number) => { const d = new Date(Date.now() - ago * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    localStorage.clear();
+    const calls = mockApi([mk("9", day(3), "Last Week Band"), ...EVENTS]);
+    render(<HistoryPage venues={[]} reload={vi.fn()} />);
+    const nudge = (await screen.findByRole("region", { name: "Recent shows to confirm" }));
+    expect(within(nudge).getByText("Last Week Band")).toBeTruthy();
+    expect(within(nudge).queryByText("Sepultura")).toBeNull();
+    fireEvent.click(within(nudge).getByRole("button", { name: "I didn't go to Last Week Band" }));
+    await waitFor(() => expect(calls.some((c) => c.name === "set_rsvp" && c.body.status === "skipped" && c.body.eventId === "9")).toBe(true));
+    cleanup();
+    mockApi([mk("9", day(3), "Last Week Band")]);
+    render(<HistoryPage venues={[]} reload={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "I went to all of these" }));
+    expect(screen.queryByRole("region", { name: "Recent shows to confirm" })).toBeNull();
+    cleanup();
+    render(<HistoryPage venues={[]} reload={vi.fn()} />);
+    await screen.findByText("Shows I've been to");
+    expect(screen.queryByRole("region", { name: "Recent shows to confirm" })).toBeNull();
+    localStorage.clear();
+  });
 });

@@ -5,6 +5,7 @@ import type { EventView, VenueRow } from "../types";
 import { EventForm } from "./EventForm";
 import { Modal } from "./Modal";
 import { RsvpPanel } from "./RsvpPanel";
+import { SetlistSection } from "./SetlistSection";
 
 /** Event details + RSVP + edit. `readOnly` is for events shared with me. */
 export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onChanged }: {
@@ -87,6 +88,8 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
         {event.description && <p>{event.description}</p>}
         {event.notes && <p className="note">{event.notes}</p>}
       </div>
+
+      <SetlistSection event={event} readOnly={readOnly} onUpdated={(e) => { setEvent(e); onChanged(); }} />
 
       {!readOnly && <RsvpPanel event={event} onChanged={reload} />}
       {readOnly && event.rsvp && <p className="panel">Status: <strong>{event.rsvp.status}</strong>{event.rsvp.companions?.length ? ` · with ${event.rsvp.companions.join(", ")}` : ""}</p>}

@@ -10,6 +10,8 @@ export type Config = {
   googleClientId?: string;
   googleClientSecret?: string;
   kmsKeyId?: string;
+  /** setlist.fm API key; without it setlist lookups are unavailable (manual setlists still work). */
+  setlistFmApiKey?: string;
   /** Local development only: trust an `x-dev-user` header instead of Cognito. */
   devAuth: boolean;
   /** Cognito has a Google identity provider configured. */
@@ -33,6 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     googleClientId: env.GOOGLE_CLIENT_ID || undefined,
     googleClientSecret: env.GOOGLE_CLIENT_SECRET || undefined,
     kmsKeyId: env.KMS_KEY_ID || undefined,
+    setlistFmApiKey: env.SETLISTFM_API_KEY || undefined,
     devAuth,
     googleSignIn: env.GOOGLE_SIGNIN === "1",
   };

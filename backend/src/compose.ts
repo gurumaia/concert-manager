@@ -6,12 +6,14 @@ import { KmsEncryptor, PlainEncryptor } from "./infra/crypto.js";
 import { DynamoRepo } from "./infra/dynamoRepo.js";
 import { CognitoIdentity, type IdentityApi } from "./infra/identity.js";
 import { GoogleCalendarGateway, buildGoogleAuthUrl, type GoogleConfig } from "./infra/google.js";
+import { SetlistFmGateway } from "./infra/setlistfm.js";
 import { MemoryRepo } from "./infra/memoryRepo.js";
 import type { Repo } from "./domain/repo.js";
 import type { CalendarGateway } from "./domain/calendar.js";
+import type { SetlistGateway } from "./domain/setlist.js";
 
 /** Wire real (or, with DEV_AUTH=1 and no TABLE_NAME, in-memory) infrastructure into the app. */
-export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo; calendar?: CalendarGateway; idp?: IdentityApi; triageHtml?: string } = {}) {
+export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo; calendar?: CalendarGateway; setlists?: SetlistGateway; idp?: IdentityApi; triageHtml?: string } = {}) {
   const useMemory = cfg.devAuth && !process.env.TABLE_NAME;
   const repo = overrides.repo ?? (useMemory ? new MemoryRepo() : new DynamoRepo(cfg.tableName));
   const encryptor = cfg.kmsKeyId ? new KmsEncryptor(cfg.kmsKeyId) : new PlainEncryptor();
@@ -26,6 +28,7 @@ export function composeApp(cfg: Config = loadConfig(), overrides: { repo?: Repo;
     calendar,
     encryptor,
     appUrl: cfg.publicBaseUrl || undefined,
+    setlists: overrides.setlists ?? (cfg.setlistFmApiKey ? new SetlistFmGateway(cfg.setlistFmApiKey) : undefined),
     buildGoogleAuthUrl: google ? (state, baseUrl) => buildGoogleAuthUrl(google, state, `${baseUrl}/api/google/callback`) : undefined,
   });
   const idp = overrides.idp ?? new CognitoIdentity(cfg.cognitoClientId, cfg.region);

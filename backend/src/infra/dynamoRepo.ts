@@ -4,6 +4,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -58,6 +59,23 @@ export class DynamoRepo implements Repo {
   getUser(id: string) { return this.getItem<UserProfile>(this.pk(id), "PROFILE"); }
   async putUser(u: UserProfile) {
     await this.putItem(this.pk(u.id), "PROFILE", u, u.email ? { gsi1pk: `EMAIL#${u.email.toLowerCase()}`, gsi1sk: u.id } : {});
+  }
+  async listUsers() {
+    const out: UserProfile[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const r = await this.doc.send(
+        new ScanCommand({
+          TableName: this.table,
+          FilterExpression: "sk = :s AND begins_with(pk, :p)",
+          ExpressionAttributeValues: { ":s": "PROFILE", ":p": "U#" },
+          ExclusiveStartKey: key,
+        }),
+      );
+      for (const i of r.Items ?? []) out.push(i.data as UserProfile);
+      key = r.LastEvaluatedKey;
+    } while (key);
+    return out;
   }
   async findUserByEmail(email: string) {
     const r = await this.doc.send(

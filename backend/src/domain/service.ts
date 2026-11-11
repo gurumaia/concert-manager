@@ -8,8 +8,11 @@ import {
   type CalendarGateway,
 } from "./calendar.js";
 import type { Repo } from "./repo.js";
+import type { SetlistGateway } from "./setlist.js";
 import type {
   EventInput,
+  Setlist,
+  SetlistInput,
   Rsvp,
   RsvpInput,
   ShowEvent,
@@ -31,6 +34,7 @@ export type EventWithVenueInput = EventInput & { venue?: VenueInput };
 /** Update payload: omitted = unchanged, null = clear. */
 export type Patch<T> = { [K in keyof T]?: T[K] | null };
 export type SyncResult = { status: "synced" | "removed" | "skipped" | "error"; message?: string };
+export type SetlistActResult = { act: string; status: "found" | "not_found" | "kept_manual" | "error"; songs?: number; message?: string };
 export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
@@ -56,6 +60,8 @@ export type ServiceDeps = {
   calendar: CalendarGateway;
   encryptor: Encryptor;
   appUrl?: string;
+  /** setlist.fm lookup; absent when no API key is configured. */
+  setlists?: SetlistGateway;
   buildGoogleAuthUrl?: (state: string, baseUrl: string) => string;
   now?: () => Date;
 };
@@ -378,6 +384,86 @@ export class Service {
   }
 
   async getEvent(ctx: Ctx, id: string) { return this.view(ctx, await this.mustEvent(ctx, id)); }
+
+  // --------------------------------------------------------------- setlists
+  /** Today's date where the show happens. */
+  private todayAt(venue?: Venue) {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: venue?.timezone ?? DEFAULT_TZ }).format(this.clock());
+  }
+
+  /** Save (or, with no songs, remove) the setlist one act played. Manual setlists are never replaced by lookups. */
+  async setSetlist(ctx: Ctx, eventId: string, input: SetlistInput) {
+    const e = await this.mustEvent(ctx, eventId);
+    const key = norm(input.act);
+    const others = (e.setlists ?? []).filter((x) => norm(x.act) !== key);
+    const next: Setlist[] = input.songs.length
+      ? [...others, { act: input.act, songs: input.songs, url: input.url, source: "manual", fetchedAt: this.now() }]
+      : others;
+    await this.repo.putEvent(ctx.userId, stripUndefined({ ...e, setlists: next.length ? next : undefined, updatedAt: this.now() }) as ShowEvent);
+    return this.view(ctx, (await this.repo.getEvent(ctx.userId, eventId))!);
+  }
+
+  /**
+   * Look up what each act of a past show played on setlist.fm and store it. Acts with a manual setlist are kept unless `force`.
+   * A lookup that finds nothing leaves what is stored alone, so it is safe to run again later (setlists are often posted days after).
+   */
+  async syncSetlists(ctx: Ctx, eventId: string, opts: { force?: boolean } = {}) {
+    if (!this.d.setlists) throw new AppError("invalid", "Setlist lookup is not set up on this server (no setlist.fm API key). You can still add a setlist by hand.");
+    const e = await this.mustEvent(ctx, eventId);
+    const venue = e.venueId ? await this.repo.getVenue(ctx.userId, e.venueId) : undefined;
+    if (e.date > this.todayAt(venue)) throw new AppError("invalid", "This show has not happened yet, so it has no setlist.");
+    const acts = e.lineup?.length ? e.lineup.map((a) => a.name) : [e.title];
+    let setlists = [...(e.setlists ?? [])];
+    const results: SetlistActResult[] = [];
+    for (const act of acts) {
+      const key = norm(act);
+      const have = setlists.find((x) => norm(x.act) === key);
+      if (have?.source === "manual" && !opts.force) { results.push({ act, status: "kept_manual", songs: have.songs.length }); continue; }
+      try {
+        const found = await this.d.setlists.find({ artist: act, date: e.date, city: venue?.city });
+        if (!found) { results.push({ act, status: "not_found" }); continue; }
+        setlists = [...setlists.filter((x) => norm(x.act) !== key), { act, songs: found.songs, url: found.url, source: "setlist.fm", fetchedAt: this.now() }];
+        results.push({ act, status: "found", songs: found.songs.length });
+      } catch (err) {
+        results.push({ act, status: "error", message: (err as Error).message });
+      }
+    }
+    if (results.some((r) => r.status === "found")) {
+      // Keep the lineup order, then any manual extras.
+      const order = (x: Setlist) => { const i = acts.findIndex((a) => norm(a) === norm(x.act)); return i < 0 ? acts.length : i; };
+      setlists.sort((a, b) => order(a) - order(b));
+      await this.repo.putEvent(ctx.userId, { ...e, setlists, updatedAt: this.now() });
+    }
+    return { event: await this.view(ctx, (await this.repo.getEvent(ctx.userId, eventId))!), results };
+  }
+
+  /**
+   * Scheduled sweep for every account: shows from the last `days` days that the user went to (or planned to) and that still lack a
+   * setlist for some act. Setlists are usually posted within a day or two, so a daily run over a short window catches them.
+   */
+  async syncRecentSetlists(days = 14) {
+    const summary = { users: 0, checked: 0, found: 0, errors: 0 };
+    if (!this.d.setlists) return summary;
+    const cutoff = new Date(this.clock().getTime() - days * 86400000).toISOString().slice(0, 10);
+    for (const u of await this.repo.listUsers()) {
+      summary.users++;
+      const ctx: Ctx = { userId: u.id, email: u.email, name: u.name };
+      const rsvps = new Map((await this.repo.listRsvps(u.id)).map((r) => [r.eventId, r]));
+      for (const e of await this.repo.listEvents(u.id)) {
+        const status = rsvps.get(e.id)?.status;
+        if ((status !== "going" && status !== "attended") || e.date < cutoff) continue;
+        const acts = e.lineup?.length ? e.lineup.map((a) => a.name) : [e.title];
+        if (acts.every((a) => e.setlists?.some((x) => norm(x.act) === norm(a)))) continue;
+        try {
+          const r = await this.syncSetlists(ctx, e.id);
+          summary.checked++;
+          summary.found += r.results.filter((x) => x.status === "found").length;
+          summary.errors += r.results.filter((x) => x.status === "error").length;
+        } catch { /* show not past yet in its own time zone, or deleted meanwhile */ }
+      }
+    }
+    return summary;
+  }
 
   async deleteEvent(ctx: Ctx, id: string) {
     await this.mustEvent(ctx, id);

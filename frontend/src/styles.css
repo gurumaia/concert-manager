@@ -332,3 +332,7 @@ main.centered { padding: 1rem; }
 .hist-legend { display: flex; gap: 1rem; margin: .5rem 0 0; }
 .hist-legend u { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; text-decoration: none; background: color-mix(in srgb, var(--attended) 18%, var(--surface-2)); }
 .hist-legend u.mine { background: var(--who, var(--muted)); }
+
+.setlist h4 { font-size: .9rem; margin: .8rem 0 .3rem; }
+.setlist-songs { margin: 0 0 .5rem; padding-left: 1.6rem; display: grid; gap: .15rem; }
+.setlist-section-name { margin: .5rem 0 .2rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }

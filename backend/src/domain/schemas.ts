@@ -62,9 +62,29 @@ export const EventInput = z.object({
   notes: z.string().optional(),
 });
 export type EventInput = z.infer<typeof EventInput>;
+// ---- Setlist ----
+export const Song = z.object({
+  name: z.string().min(1),
+  cover: z.string().optional().describe("Original artist, when this is a cover"),
+  info: z.string().optional().describe("Note such as 'acoustic' or 'with Guest'"),
+  tape: z.boolean().optional().describe("Played from tape / not live"),
+  section: z.string().optional().describe("Group the song belongs to, e.g. 'Encore'. Omit for the main set."),
+});
+export type Song = z.infer<typeof Song>;
+
+export const SetlistInput = z.object({
+  act: z.string().min(1).describe("Which act of the lineup played this set"),
+  songs: z.array(Song).describe("In playing order. An empty list removes the setlist for this act."),
+  url: z.string().url().optional().describe("Where the setlist came from"),
+});
+export type SetlistInput = z.infer<typeof SetlistInput>;
+/** `manual` setlists are never overwritten by an automatic lookup. */
+export type Setlist = { act: string; songs: Song[]; url?: string; source: "setlist.fm" | "manual"; fetchedAt: string };
+
 export type ShowEvent = Omit<EventInput, "venueId"> & {
   id: string;
   venueId?: string;
+  setlists?: Setlist[];
   createdAt: string;
   updatedAt: string;
 };

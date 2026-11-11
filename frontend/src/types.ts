@@ -1,8 +1,8 @@
 // Types come straight from the backend schemas so the two cannot drift.
-import type { Act, Rsvp, ShowEvent, Tier, Venue } from "../../backend/src/domain/schemas";
+import type { Act, Rsvp, ShowEvent, Song, Tier, Venue } from "../../backend/src/domain/schemas";
 
 export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null };
-export type { Act, Rsvp, ShowEvent, Tier, Venue };
+export type { Act, Rsvp, ShowEvent, Song, Tier, Venue };
 export type RsvpStatus = Rsvp["status"];
 export type SharedEventView = EventView & { sharedBy: { id: string; name?: string; email?: string } };
 export type VenueRow = Venue & { eventCount: number };

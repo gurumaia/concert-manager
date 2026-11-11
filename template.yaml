@@ -31,6 +31,11 @@ Parameters:
     Type: String
     Default: ''
     NoEcho: true
+  SetlistFmApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: setlist.fm API key (free, https://www.setlist.fm/settings/api). Empty disables setlist lookups; setlists can still be entered by hand.
 Conditions:
   HasGoogleSignIn: !And
     - !Not [!Equals [!Ref SignInGoogleClientId, '']]
@@ -213,7 +218,13 @@ Resources:
       # Bundled by `npm run build` in backend/ (esbuild) before `sam build`/`sam deploy`.
       CodeUri: backend/dist/
       Handler: lambda.handler
+      Timeout: 120 # the daily setlist sweep makes one throttled setlist.fm call per act; HTTP requests are capped at 30s by API Gateway
       Events:
+        # Fetch setlists of recent shows. 09:00 UTC = 06:00 in Sao Paulo, after the night's shows.
+        SetlistSweep:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 9 * * ? *)
         Any:
           Type: HttpApi
           Properties:
@@ -232,6 +243,7 @@ Resources:
           CLIENT_ID_PARAM: !Sub /show-manager/${Environment}/cognito-client-id
           GOOGLE_CLIENT_ID: !Ref CalendarGoogleClientId
           GOOGLE_CLIENT_SECRET: !Ref CalendarGoogleClientSecret
+          SETLISTFM_API_KEY: !Ref SetlistFmApiKey
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }

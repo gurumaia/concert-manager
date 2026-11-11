@@ -4,6 +4,7 @@
 # Google values come from the environment (never committed). One client serves both Sign in with Google and Calendar:
 #   export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
 # Use SIGNIN_GOOGLE_CLIENT_ID/SECRET or CALENDAR_GOOGLE_CLIENT_ID/SECRET only to give one of them a different client.
+# Optional: export SETLISTFM_API_KEY=... (free key from https://www.setlist.fm/settings/api) to enable setlist lookups.
 # Parameters you don't pass keep their current value on an existing stack (sam deploy sends UsePreviousValue),
 # so the Google values only need exporting the first time or when they change.
 set -euo pipefail
@@ -28,6 +29,7 @@ sam build --no-cached
 PARAMS=("Environment=$ENV")
 [ -n "${SIGNIN_GOOGLE_CLIENT_ID:-}" ] && PARAMS+=("SignInGoogleClientId=$SIGNIN_GOOGLE_CLIENT_ID" "SignInGoogleClientSecret=$SIGNIN_GOOGLE_CLIENT_SECRET")
 [ -n "${CALENDAR_GOOGLE_CLIENT_ID:-}" ] && PARAMS+=("CalendarGoogleClientId=$CALENDAR_GOOGLE_CLIENT_ID" "CalendarGoogleClientSecret=$CALENDAR_GOOGLE_CLIENT_SECRET")
+[ -n "${SETLISTFM_API_KEY:-}" ] && PARAMS+=("SetlistFmApiKey=$SETLISTFM_API_KEY")
 sam deploy --stack-name "$STACK" --region "$REGION" "${PROFILE_ARGS[@]}" --resolve-s3 \
   --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --parameter-overrides "${PARAMS[@]}"
 

@@ -7,6 +7,8 @@ export type OAuthState = { userId: string; expiresAt: number };
 export interface Repo {
   getUser(userId: string): Promise<UserProfile | undefined>;
   putUser(user: UserProfile): Promise<void>;
+  /** Every user profile (for scheduled jobs that sweep all accounts). */
+  listUsers(): Promise<UserProfile[]>;
 
   getVenue(userId: string, id: string): Promise<Venue | undefined>;
   listVenues(userId: string): Promise<Venue[]>;

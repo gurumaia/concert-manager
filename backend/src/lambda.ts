@@ -12,6 +12,15 @@ if (!process.env.COGNITO_CLIENT_ID && process.env.CLIENT_ID_PARAM) {
   process.env.COGNITO_CLIENT_ID = r.Parameter?.Value;
 }
 
-const { app } = composeApp(loadConfig(), { triageHtml });
+const { app, svc } = composeApp(loadConfig(), { triageHtml });
+const http = handle(app);
 
-export const handler = handle(app);
+/** Serves HTTP traffic, and also the daily EventBridge schedule that fetches setlists of recent shows. */
+export const handler = async (event: any, context: any) => {
+  if (event?.source === "aws.events") {
+    const summary = await svc.syncRecentSetlists();
+    console.log("setlist sweep", JSON.stringify(summary));
+    return summary;
+  }
+  return http(event, context);
+};

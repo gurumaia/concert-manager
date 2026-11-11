@@ -18,6 +18,7 @@ export class MemoryRepo implements Repo {
 
   async getUser(id: string) { const u = this.users.get(id); return u && clone(u); }
   async putUser(u: UserProfile) { this.users.set(u.id, clone(u)); }
+  async listUsers() { return [...this.users.values()].map(clone); }
   async findUserByEmail(email: string) {
     const e = email.toLowerCase();
     const u = [...this.users.values()].find((x) => x.email?.toLowerCase() === e);

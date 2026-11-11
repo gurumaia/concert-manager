@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EventInput, DateStr, RsvpInput, RsvpStatus, SaleStatus, VenueInput } from "./domain/schemas.js";
+import { EventInput, DateStr, RsvpInput, RsvpStatus, SaleStatus, SetlistInput, VenueInput } from "./domain/schemas.js";
 import type { Ctx, Service } from "./domain/service.js";
 
 /**
@@ -99,6 +99,25 @@ export const ops: Op[] = [
     description: "Delete an event, its RSVP and its calendar entry.",
     input: z.object({ eventId: id }),
     run: (s, c, i) => s.deleteEvent(c, i.eventId),
+  }),
+
+  // ---- setlists
+  op({
+    name: "sync_setlist", title: "Fetch setlist",
+    description:
+      "Look up the setlist of a past show on setlist.fm (one lookup per act in the lineup) and store it on the event. " +
+      "Safe to repeat: it keeps what is stored when nothing is found, and never replaces a manually entered setlist unless force=true. " +
+      "Setlists are often posted a day or two after the show. The result lists per act whether it was found, not found, kept (manual) or failed.",
+    input: z.object({ eventId: id, force: z.boolean().optional().describe("Also replace setlists that were entered by hand") }),
+    run: (s, c, i) => s.syncSetlists(c, i.eventId, { force: i.force }),
+  }),
+  op({
+    name: "set_setlist", title: "Set setlist",
+    description:
+      "Store the songs one act played at a show, by hand (use this when setlist.fm has nothing or is wrong). Replaces that act's setlist; an empty songs list removes it. " +
+      "Use `section` for encores. Manual setlists are not overwritten by sync_setlist.",
+    input: SetlistInput.extend({ eventId: id }),
+    run: (s, c, { eventId, ...setlist }) => s.setSetlist(c, eventId, setlist),
   }),
 
   // ---- rsvp

@@ -9,8 +9,10 @@ const QUICK: Array<["going" | "interested" | "skipped", string]> = [["going", "G
  * Every card has the same slots in the same places: title (+ New) / acts / venue on the left, genre top-right and sale status
  * bottom-right, then a footer with time, price and the RSVP actions. Missing time or price shows a muted "TBA" in its slot.
  */
-export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, sharedBy, isNew, now }: {
+export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, pending, locked, sharedBy, isNew, now }: {
   event: EventView; onOpen?: () => void; openLabel?: string; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
+  /** The quick RSVP being saved on this card (shown as a spinner), and whether any card is saving (all quick buttons wait). */
+  pending?: "going" | "interested" | "skipped"; locked?: boolean;
   /** Added in the last 7 days: gets a New pill and a highlight. */
   isNew?: boolean; now?: number;
 }) {
@@ -53,9 +55,9 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
         <span className="acts">
           {onQuick && !event.attended ? (
             // All three stay quiet; only the one matching your RSVP is lit, in its status colour.
-            <span role="group" aria-label={`RSVP for ${event.title}`} className="acts-btns">
+            <span role="group" aria-label={`RSVP for ${event.title}`} aria-busy={!!pending} className="acts-btns">
               {QUICK.map(([s, label]) => (
-                <button key={s} className={`qbtn${status === s ? ` on ${s}` : ""}`} aria-pressed={status === s} onClick={() => status !== s && onQuick(s)}>{label}</button>
+                <button key={s} className={`qbtn${status === s ? ` on ${s}` : ""}${pending === s ? " saving" : ""}`} aria-pressed={status === s} aria-label={pending === s ? `${label}, saving` : undefined} disabled={locked} onClick={() => status !== s && onQuick(s)}>{label}</button>
               ))}
             </span>
           ) : status ? (

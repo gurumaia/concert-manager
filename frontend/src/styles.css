@@ -359,3 +359,36 @@ main.centered { padding: 1rem; }
 .setlist-section-name { margin: .5rem 0 .2rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 
 .names ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; } .names li { justify-content: space-between; }
+
+/* score input */
+.score { border: 0; padding: 0; margin: .5rem 0; }
+.score legend { font-weight: 600; padding: 0; margin-bottom: .25rem; }
+.score .row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+/* no padding/border: the global input padding shrinks the thumb's travel, so at 10 the thumb stopped short of the track end */
+.score input[type="range"] { flex: 1 1 10rem; min-height: 42px; padding: 0; border: 0; background: transparent; accent-color: var(--attended); }
+.score input[type="range"].unrated { opacity: .5; }
+/* beats `.row > input { flex: 1 }` so the box is only as wide as "10" */
+.score .row > input.score-num { flex: 0 0 auto; width: 3.5rem; padding-inline: .3rem; text-align: center; }
+
+/* lineup */
+.lineup { margin: 1rem 0; }
+.lineup-list { list-style: none; margin: 0; padding: 0; }
+.lineup-row { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; gap: .8rem; align-items: center; padding: .65rem 0; border-top: 1px solid var(--border); }
+.lineup-row:first-child { border-top: 0; }
+.lineup-row.scored { grid-template-columns: 2.4rem minmax(0, 1fr) minmax(0, 15rem); }
+.lineup-av { --h: 0; width: 2.4rem; height: 2.4rem; border-radius: 50%; display: grid; place-items: center; font-weight: 800; flex: none;
+  background: hsl(var(--h) var(--gp-s) var(--gp-bg-l)); color: hsl(var(--h) var(--gp-s) var(--gp-fg-l)); border: 1px solid hsl(var(--h) var(--gp-s) var(--gp-bd-l)); }
+.lineup-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.lineup-who .role { font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lineup-who .nm { font-weight: 700; overflow-wrap: anywhere; }
+.lineup-row:first-child .lineup-who .nm { font-size: 1.1rem; }
+.lineup-total { display: flex; justify-content: space-between; align-items: center; gap: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; margin-top: .2rem; }
+.lineup-total .score-row { width: 15rem; max-width: 60%; }
+.lineup-total.alone { flex-direction: column; align-items: stretch; border-top: 0; padding-top: 0; }
+.lineup-total.alone .score-row { width: auto; max-width: none; }
+.score-row { margin: .2rem 0; }
+.score-row .score-num { flex: 0 0 auto; width: 3.5rem; padding-inline: .3rem; text-align: center; }
+.score-row input[type="range"] { flex: 1 1 6rem; min-height: 32px; padding: 0; border: 0; background: transparent; accent-color: var(--attended); }
+.score-row input[type="range"].unrated { opacity: .5; }
+.save-note { margin: .4rem 0 0; } .save-note .ok { color: var(--going); font-weight: 800; }
+@media (max-width: 560px) { .lineup-row.scored { grid-template-columns: 2.4rem minmax(0, 1fr); } .lineup-row.scored .score-row { grid-column: 1 / -1; } .lineup-total { flex-wrap: wrap; } .lineup-total .score-row { width: 100%; max-width: none; } }

@@ -310,6 +310,46 @@ describe(`events and venues [${kind}]`, () => {
     expect(merged.names?.map((n) => n.name)).toEqual(["Alpha", "Beta"]);
   });
 
+  it("scores attended shows in 0.5 steps and lets it be cleared", async () => {
+    const { svc, me } = await setup();
+    const past = (await svc.createEvent(me, { title: "Old gig", date: "2025-05-01" })).event;
+    const future = (await svc.createEvent(me, { title: "Next gig", date: "2999-05-01" })).event;
+    await svc.setRsvp(me, future.id, { status: "going" });
+    await expect(svc.setRsvp(me, future.id, { status: "going", score: 8 })).rejects.toThrow(/attended/);
+    await svc.setRsvp(me, past.id, { status: "going" });
+    await expect(svc.setRsvp(me, past.id, { status: "going", score: 8.3 })).rejects.toThrow();
+    expect((await svc.setRsvp(me, past.id, { status: "going", score: 8.5 })).rsvp.score).toBe(8.5);
+    expect((await svc.setRsvp(me, past.id, { status: "going", notes: "x" })).rsvp.score).toBe(8.5); // kept when not sent
+    expect((await svc.getEvent(me, past.id)).rsvp?.score).toBe(8.5);
+    expect((await svc.setRsvp(me, past.id, { status: "going", score: 0 })).rsvp.score).toBe(0);
+    expect((await svc.setRsvp(me, past.id, { status: "going", score: null })).rsvp.score).toBeUndefined();
+    await svc.setRsvp(me, past.id, { status: "going", score: 7 });
+    expect((await svc.setRsvp(me, past.id, { status: "skipped" })).rsvp.score).toBeUndefined();
+  });
+
+  it("scores each act of an attended show; merges, clears, validates names and never touches the calendar", async () => {
+    const { svc, me, calendar } = await setup();
+    const past = (await svc.createEvent(me, { title: "Festival day", date: "2025-05-01", lineup: [{ name: "Headliner", role: "headliner" }, { name: "Opener Band", role: "opener" }] })).event;
+    await expect(svc.setScores(me, past.id, { score: 8 })).rejects.toThrow(/going first/);
+    await svc.setRsvp(me, past.id, { status: "going" });
+    const calls = calendar.events.size;
+    const r1 = await svc.setScores(me, past.id, { score: 9, actScores: { headliner: 9.5, "OPENER band": 5 } }); // names match loosely, stored as in the lineup
+    expect(r1.rsvp).toMatchObject({ score: 9, actScores: { Headliner: 9.5, "Opener Band": 5 } });
+    expect((await svc.setScores(me, past.id, { actScores: { Headliner: 10 } })).rsvp.actScores).toEqual({ Headliner: 10, "Opener Band": 5 }); // merged
+    expect((await svc.setScores(me, past.id, { actScores: { "Opener Band": null } })).rsvp.actScores).toEqual({ Headliner: 10 });
+    await expect(svc.setScores(me, past.id, { actScores: { Nobody: 3 } })).rejects.toThrow(/not in this show's lineup/);
+    await expect(svc.setScores(me, past.id, { actScores: { Headliner: 7.3 } })).rejects.toThrow();
+    expect((await svc.getEvent(me, past.id)).rsvp?.actScores).toEqual({ Headliner: 10 });
+    expect((await svc.setRsvp(me, past.id, { status: "going", notes: "x" })).rsvp.actScores).toEqual({ Headliner: 10 }); // kept by other edits
+    expect((await svc.setScores(me, past.id, { actScores: null })).rsvp.actScores).toBeUndefined();
+    await svc.setScores(me, past.id, { actScores: { Headliner: 6 } });
+    expect((await svc.setRsvp(me, past.id, { status: "skipped" })).rsvp.actScores).toBeUndefined();
+    expect(calendar.events.size).toBe(calls);
+    const future = (await svc.createEvent(me, { title: "Next", date: "2999-01-01", lineup: [{ name: "A" }] })).event;
+    await svc.setRsvp(me, future.id, { status: "going" });
+    await expect(svc.setScores(me, future.id, { actScores: { A: 5 } })).rejects.toThrow(/attended/);
+  });
+
   it("retires a venue: hidden from list_venues, still on its events and in stats, reversible", async () => {
     const { svc, me } = await setup();
     const a = (await svc.createEvent(me, { title: "Old gig", date: "2025-05-01", venue: { name: "Closed Club" } })).event;

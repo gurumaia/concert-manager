@@ -11,6 +11,7 @@ Typical flow: list_venues, then create events (bulk_create_events after research
 list_events with rsvp='none' to present undecided candidates grouped by date/venue, then set_rsvp for the ones the user picks.
 To let the user decide themselves, call show_triage: in hosts that support MCP Apps it renders the Shows page inline (Going / Interested / Skip / Undo save straight to their account); elsewhere it returns a short text summary, so use list_events + set_rsvp instead.
 'going' (also used once tickets are bought) puts the show on the user's Google Calendar; connect it first with calendar_connect.
+After a show, set_scores records how good it was: score for the whole night and actScores per act (0-10 in 0.5 steps; null clears); list_events returns them as rsvp.score and rsvp.actScores.
 Dates are YYYY-MM-DD and times HH:MM in the venue's local time. Most fields are optional: leave unknown ones out rather than guessing.`;
 
 export const TRIAGE_URI = "ui://show-manager/triage";

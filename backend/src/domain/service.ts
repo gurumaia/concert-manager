@@ -644,13 +644,15 @@ export class Service {
     const event = await this.mustEvent(ctx, eventId);
     const prev = await this.repo.getRsvp(ctx.userId, eventId);
     const now = this.now();
+    const { score, actScores, ...rest } = input;
     const rsvp: Rsvp = {
       ...(prev ?? { sharedWith: [], createdAt: now }),
-      ...stripUndefined(input),
+      ...stripUndefined(rest),
       status: input.status === "attended" ? "going" : input.status, // "attended" is retired: going + a past date means you went
       eventId,
       updatedAt: now,
     };
+    await this.applyScores(ctx, event, rsvp, score, actScores);
     if (rsvp.tierName && event.tiers?.length && !event.tiers.some((t) => t.name === rsvp.tierName)) {
       throw new AppError("invalid", `Tier "${rsvp.tierName}" not on this event. Tiers: ${event.tiers.map((t) => t.name).join(", ")}`);
     }
@@ -658,6 +660,45 @@ export class Service {
     await this.repo.putRsvp(ctx.userId, rsvp);
     const calendar = await this.syncRsvp(ctx, eventId);
     return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))!, warnings, calendar };
+  }
+
+  /**
+   * Overall and per-act scores. Only a show you attended (going, date over) can carry them; once the RSVP is anything else they are dropped.
+   * `acts` merges into the existing ones: an act set to null is cleared, null clears them all.
+   */
+  private async applyScores(ctx: Ctx, event: ShowEvent, rsvp: Rsvp, score: number | null | undefined, acts: Record<string, number | null> | null | undefined) {
+    const valid = (n: number) => n >= 0 && n <= 10 && Number.isInteger(n * 2);
+    if (typeof score === "number" && !valid(score)) throw new AppError("invalid", "Score must be between 0 and 10 in steps of 0.5.");
+    if (score === null) delete rsvp.score;
+    else if (score !== undefined) rsvp.score = score;
+    if (acts === null) delete rsvp.actScores;
+    else if (acts) {
+      const next = { ...(rsvp.actScores ?? {}) };
+      for (const [name, v] of Object.entries(acts)) {
+        const act = (event.lineup ?? []).find((a) => norm(a.name) === norm(name));
+        if (!act) throw new AppError("invalid", `"${name}" is not in this show's lineup.${event.lineup?.length ? ` Lineup: ${event.lineup.map((a) => a.name).join(", ")}` : ""}`);
+        if (v === null) delete next[act.name];
+        else if (!valid(v)) throw new AppError("invalid", "Scores must be between 0 and 10 in steps of 0.5.");
+        else next[act.name] = v;
+      }
+      if (Object.keys(next).length) rsvp.actScores = next; else delete rsvp.actScores;
+    }
+    const setting = typeof score === "number" || (!!acts && Object.values(acts).some((v) => typeof v === "number"));
+    if (setting) {
+      const venue = event.venueId ? await this.repo.getVenue(ctx.userId, event.venueId) : undefined;
+      if (rsvp.status !== "going" || event.date >= this.todayAt(venue)) throw new AppError("invalid", "Only a show you attended (going, with a date in the past) can be scored.");
+    } else if (rsvp.status !== "going") { delete rsvp.score; delete rsvp.actScores; } // scores from before you changed your mind
+  }
+
+  /** Change only the scores of an attended show (no calendar sync, no conflict check): cheap enough to call on every slider move. */
+  async setScores(ctx: Ctx, eventId: string, input: { score?: number | null; actScores?: Record<string, number | null> | null }) {
+    const event = await this.mustEvent(ctx, eventId);
+    const prev = await this.repo.getRsvp(ctx.userId, eventId);
+    if (!prev) throw new AppError("not_found", "Mark the show as going first, then score it.");
+    const rsvp: Rsvp = { ...prev, status: prev.status === "attended" ? "going" : prev.status, updatedAt: this.now() };
+    await this.applyScores(ctx, event, rsvp, input.score, input.actScores);
+    await this.repo.putRsvp(ctx.userId, rsvp);
+    return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))! };
   }
 
   async removeRsvp(ctx: Ctx, eventId: string) {

@@ -10,6 +10,12 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: gurumaia/concert-manager
+  GitHubImmutableSubject:
+    Type: String
+    Default: gurumaia@8412398/concert-manager@1455664103
+    Description: >
+      Owner and repo as GitHub puts them in the OIDC subject when the repo uses immutable subject IDs
+      (gh api repos/<repo>/actions/oidc/customization/sub, the sub_claim_prefix without "repo:").
   OidcProviderArn:
     Type: String
     Default: arn:aws:iam::264791813990:oidc-provider/token.actions.githubusercontent.com
@@ -27,7 +33,10 @@ Resources:
             Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals: { 'token.actions.githubusercontent.com:aud': sts.amazonaws.com }
-              StringLike: { 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/*' }
+              StringLike:
+                'token.actions.githubusercontent.com:sub':
+                  - !Sub 'repo:${GitHubImmutableSubject}:ref:refs/heads/*'
+                  - !Sub 'repo:${GitHubRepo}:ref:refs/heads/*'
       ManagedPolicyArns: [!Ref DeployPolicy]
   PrdDeployRole:
     Type: AWS::IAM::Role
@@ -43,7 +52,9 @@ Resources:
             Condition:
               StringEquals:
                 'token.actions.githubusercontent.com:aud': sts.amazonaws.com
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
+                'token.actions.githubusercontent.com:sub':
+                  - !Sub 'repo:${GitHubImmutableSubject}:ref:refs/heads/main'
+                  - !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
       ManagedPolicyArns: [!Ref DeployPolicy]
   # sam deploy touches CloudFormation plus every service the stack uses. IAM is limited to roles named
   # show-manager-* (Lambda execution roles are generated as <stack>-<logical id>-<suffix>).

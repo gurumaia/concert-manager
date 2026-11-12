@@ -43,7 +43,7 @@ for (const it of items) {
   if (enc) { it.data.calendar.refreshTokenEnc = await reencrypt(enc); tokens++; }
   keep.push(it);
 }
-console.log(`${from} -> ${to}: scanned ${items.length}, copying ${keep.length}, re-encrypted ${tokens} calendar token(s), skipped`, skipped);
+console.log("%s -> %s: scanned %d, copying %d, re-encrypted %d calendar token(s), skipped", from, to, items.length, keep.length, tokens, skipped);
 
 if (!apply) { console.log("dry run: nothing written (pass --apply)"); process.exit(0); }
 for (let i = 0; i < keep.length; i += 25) {

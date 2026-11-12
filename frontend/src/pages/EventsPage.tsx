@@ -1,6 +1,7 @@
 import { venueNames } from "../history";
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { op } from "../api";
+import { useBlockStrayFileDrops } from "../usePhotoDrop";
 import { EventCard } from "../components/EventCard";
 import { EventDrawer } from "../components/EventDrawer";
 import { GenreChips, type GenreOption } from "../components/GenreChips";
@@ -34,10 +35,12 @@ const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").t
 export function EventsPage({ events, venues, reload, error, loading, embed }: {
   events: EventView[]; venues: VenueRow[]; reload: () => void | Promise<void>; error?: string; loading: boolean; embed?: Embed;
 }) {
+  useBlockStrayFileDrops();
   const [tab, setTab] = useState<Tab>(embed?.initial?.tab ?? "undecided");
   const [q, setQ] = useState(embed?.initial?.text ?? "");
   const [venueId, setVenueId] = useState(embed?.initial?.venueId ?? "");
   const [open, setOpen] = useState<string | "new" | undefined>();
+  const [focus, setFocus] = useState<"photos">();
   const [quickError, setQuickError] = useState<string>();
   const [onlyNew, setOnlyNew] = useState(false);
   const [genres, setGenres] = useState<Set<string>>(() => new Set(embed?.initial?.genre ? [norm(embed.initial.genre.trim())] : []));
@@ -142,7 +145,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
 
   // On the web the card opens the details drawer; inside Claude it opens the show's ticket / source page, when it has one.
   const openProps = (e: EventView) => {
-    if (!embed) return { onOpen: () => setOpen(e.id) };
+    if (!embed) return { onOpen: (target?: "photos") => { setFocus(target); setOpen(e.id); }, onPhotosChanged: () => void reload() };
     const url = e.ticketUrl ?? e.sourceUrl;
     return url && embed.openLink ? { onOpen: () => embed.openLink!(url), openLabel: "Open the ticket page" } : {};
   };
@@ -236,7 +239,8 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
           eventId={open === "new" ? undefined : open}
           initial={open === "new" ? undefined : events.find((e) => e.id === open)}
           venues={venues}
-          onClose={() => setOpen(undefined)}
+          focus={focus}
+          onClose={() => { setOpen(undefined); setFocus(undefined); }}
           onChanged={reload}
         />
       )}

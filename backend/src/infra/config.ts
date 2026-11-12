@@ -12,6 +12,8 @@ export type Config = {
   kmsKeyId?: string;
   /** setlist.fm API key; without it setlist lookups are unavailable (manual setlists still work). */
   setlistFmApiKey?: string;
+  /** S3 bucket for photos; without it (and outside DEV_AUTH) photo operations are unavailable. */
+  photosBucket?: string;
   /** Local development only: trust an `x-dev-user` header instead of Cognito. */
   devAuth: boolean;
   /** Cognito has a Google identity provider configured. */
@@ -36,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     googleClientSecret: env.GOOGLE_CLIENT_SECRET || undefined,
     kmsKeyId: env.KMS_KEY_ID || undefined,
     setlistFmApiKey: env.SETLISTFM_API_KEY || undefined,
+    photosBucket: env.PHOTOS_BUCKET || undefined,
     devAuth,
     googleSignIn: env.GOOGLE_SIGNIN === "1",
   };

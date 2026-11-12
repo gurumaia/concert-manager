@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { op } from "../api";
 import { EventDrawer } from "../components/EventDrawer";
+import { Icon } from "../components/Icon";
 import { dateLabel, genreHue } from "../format";
 import { ALONE, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, personHue, summarize, withWho, type Person, type Ranked } from "../history";
 import type { EventView, VenueRow } from "../types";
+import { useBlockStrayFileDrops, usePhotoDrop } from "../usePhotoDrop";
 
 const PAGE = 500; // list_events returns at most 500 at a time
 
@@ -33,6 +35,7 @@ const spentLabel = (spent: Record<string, number>) => {
 
 /** Every show you went to, newest first: an overview of the whole span, then a searchable ledger grouped by year. */
 export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: () => void | Promise<void> }) {
+  useBlockStrayFileDrops();
   const [events, setEvents] = useState<EventView[]>();
   const [error, setError] = useState<string>();
   const [q, setQ] = useState("");
@@ -191,7 +194,7 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
                       <span className="muted small">{g.events.length === 1 ? "1 show" : `${g.events.length} shows`}</span>
                     </div>
                     <ul className="hist-list">
-                      {g.events.map((e) => <Row key={e.id} event={e} onOpen={() => setOpen(e)} />)}
+                      {g.events.map((e) => <Row key={e.id} event={e} onOpen={() => setOpen(e)} onPhotosChanged={() => { void load(); void reload(); }} />)}
                     </ul>
                   </section>
                 ))}
@@ -256,14 +259,15 @@ function TopList({ title, items, onPick }: { title: string; items: Ranked[]; onP
   );
 }
 
-function Row({ event: e, onOpen }: { event: EventView; onOpen: () => void }) {
+function Row({ event: e, onOpen, onPhotosChanged }: { event: EventView; onOpen: () => void; onPhotosChanged: () => void }) {
+  const drop = usePhotoDrop(e.id, onPhotosChanged);
   const [, , day] = e.date.split("-");
   const lead = headliner(e);
   const support = (e.lineup ?? []).map((a) => a.name).filter((n) => n !== lead && n !== e.title);
   const genre = e.genre?.trim();
   const companions = companionsOf(e);
   return (
-    <li>
+    <li className={`hist-item${drop.state.dragging ? " dropping" : ""}`} {...drop.handlers}>
       <button className="hist-row" onClick={onOpen} aria-label={`${e.title}, ${dateLabel(e.date, { month: "long", day: "numeric", year: "numeric" })}. Open details${companions.length ? `, with ${companions.map((c) => c.name).join(", ")}` : ""}`}>
         <span className="hd" aria-hidden="true"><b>{day}</b><span>{dateLabel(e.date, { month: "short" })}</span></span>
         <span className="hi">
@@ -272,11 +276,15 @@ function Row({ event: e, onOpen }: { event: EventView; onOpen: () => void }) {
           <span className="hs muted">{e.venue ? `${e.venue.name}${e.venue.city ? ` · ${e.venue.city}` : ""}` : "Venue not set"}</span>
         </span>
         <span className="hs-side">
+          {!!e.photoCount && <span className="tag photo-tag" aria-label={`${e.photoCount} ${e.photoCount === 1 ? "photo" : "photos"}`}><Icon name="camera" size={13} />{e.photoCount}</span>}
           {e.rsvp?.score !== undefined && <span className="tag" aria-label={`Score ${e.rsvp.score} out of 10`}>★ {e.rsvp.score}</span>}
           {companions.length > 0 && <Avatars people={companions} />}
           {genre && <span className="genre-pill" style={{ "--h": genreHue(genre) } as CSSProperties} title={genre}>{genre}</span>}
         </span>
       </button>
+      {drop.state.dragging && <span className="drop-hint" aria-hidden="true">Drop to add photos to {e.title}</span>}
+      {drop.state.status && <p role="status" className="drop-note muted small">{drop.state.status}</p>}
+      {drop.state.error && <p role="alert" className="drop-note error small">{drop.state.error} <button className="icon-btn" aria-label="Dismiss" onClick={drop.dismiss}>×</button></p>}
     </li>
   );
 }

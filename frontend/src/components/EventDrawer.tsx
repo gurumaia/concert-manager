@@ -5,12 +5,13 @@ import type { EventView, VenueRow } from "../types";
 import { EventForm } from "./EventForm";
 import { Modal } from "./Modal";
 import { LineupSection } from "./LineupSection";
+import { PhotosSection } from "./PhotosSection";
 import { RsvpPanel } from "./RsvpPanel";
 import { SetlistSection } from "./SetlistSection";
 
 /** Event details + RSVP + edit. `readOnly` is for events shared with me. */
-export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onChanged }: {
-  eventId?: string; initial?: EventView; venues: VenueRow[]; readOnly?: boolean; onClose: () => void; onChanged: () => void;
+export function EventDrawer({ eventId, initial, venues, readOnly, ownerId, focus, onClose, onChanged }: {
+  eventId?: string; initial?: EventView; venues: VenueRow[]; readOnly?: boolean; /** Whose photos to show when the event is shared with me. */ ownerId?: string; /** Open scrolled to the photos. */ focus?: "photos"; onClose: () => void; onChanged: () => void;
 }) {
   const [event, setEvent] = useState<EventView | undefined>(initial);
   const [mode, setMode] = useState<"view" | "edit">(eventId || initial ? "view" : "edit");
@@ -89,6 +90,8 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
       <LineupSection event={event} readOnly={readOnly} onSaved={onChanged} />
 
       <SetlistSection event={event} readOnly={readOnly} onUpdated={(e) => { setEvent(e); onChanged(); }} />
+
+      {(!readOnly ? event.past : !!ownerId) && <PhotosSection event={event} ownerId={readOnly ? ownerId : undefined} readOnly={readOnly} scrollTo={focus === "photos"} onChange={onChanged} />}
 
       {!readOnly && <RsvpPanel event={event} onChanged={reload} />}
       {readOnly && event.rsvp && <p className="panel">Status: <strong>{event.rsvp.status}</strong>{event.rsvp.companions?.length ? ` · with ${event.rsvp.companions.join(", ")}` : ""}</p>}

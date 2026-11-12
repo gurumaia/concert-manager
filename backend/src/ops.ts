@@ -144,6 +144,71 @@ export const ops: Op[] = [
     input: z.object({ eventId: id }),
     run: (s, c, i) => s.removeRsvp(c, i.eventId),
   }),
+  // ---- photos
+  op({
+    name: "request_photo_upload", title: "Start a photo upload",
+    description:
+      "Browser upload step 1: returns signed URLs to PUT a photo (JPEG, PNG or WebP, up to 10 MB) and optionally a small JPEG preview straight to storage, then call confirm_photo. " +
+      "Max 20 photos per show. From an AI assistant use add_photo_from_url or add_photo_base64 instead.",
+    input: z.object({ eventId: id, contentType: z.string(), bytes: z.number().int().positive(), thumbBytes: z.number().int().positive().optional() }),
+    run: (s, c, { eventId, ...i }) => s.requestPhotoUpload(c, eventId, i),
+  }),
+  op({
+    name: "confirm_photo", title: "Finish a photo upload",
+    description: "Browser upload step 2: after the file was PUT to the URL from request_photo_upload, attach it to the show.",
+    input: z.object({ eventId: id, photoId: id, caption: z.string().max(300).optional() }),
+    run: (s, c, i) => s.confirmPhoto(c, i.eventId, i.photoId, i.caption),
+  }),
+  op({
+    name: "add_photo_from_url", title: "Add a photo from a URL",
+    description:
+      "Attach a photo to a show by giving a public https image URL (JPEG, PNG or WebP, up to 10 MB). The server downloads and stores it. " +
+      "Photos are private to the user by default; use share_photos or set_photos_public to share them.",
+    input: z.object({ eventId: id, url: z.string().url(), caption: z.string().max(300).optional() }),
+    run: (s, c, i) => s.addPhotoFromUrl(c, i.eventId, i.url, i.caption),
+  }),
+  op({
+    name: "add_photo_base64", title: "Add a photo (inline)",
+    description: "Attach a small photo (JPEG, PNG or WebP, up to 1 MB) sent as base64 text. For anything larger use add_photo_from_url.",
+    input: z.object({ eventId: id, data: z.string().min(1).describe("Base64 of the image bytes (a data: URL is also accepted)"), caption: z.string().max(300).optional() }),
+    run: (s, c, i) => s.addPhotoBase64(c, i.eventId, i.data, i.caption),
+  }),
+  op({
+    name: "list_photos", title: "List photos of a show", readOnly: true,
+    description: "Photos of a show with signed view URLs (valid for an hour). Give `ownerId` (the sharedBy id from list_shared_with_me) to list the photos someone shared with the user.",
+    input: z.object({ eventId: id, ownerId: z.string().optional() }),
+    run: (s, c, i) => s.listPhotos(c, i.eventId, i.ownerId),
+  }),
+  op({
+    name: "update_photo", title: "Edit a photo caption",
+    description: "Set or clear (null) the caption of one of the user's photos.",
+    input: z.object({ eventId: id, photoId: id, caption: z.string().max(300).nullable() }),
+    run: (s, c, i) => s.updatePhoto(c, i.eventId, i.photoId, i.caption),
+  }),
+  op({
+    name: "delete_photo", title: "Delete a photo", destructive: true,
+    description: "Delete one of the user's photos for good (the stored file too).",
+    input: z.object({ eventId: id, photoId: id }),
+    run: (s, c, i) => s.deletePhoto(c, i.eventId, i.photoId),
+  }),
+  op({
+    name: "share_photos", title: "Share photos",
+    description: "Share a show's photos (all, or the listed photoIds) with specific people by email. They see them under 'shared with me'. Photos are private until shared.",
+    input: z.object({ eventId: id, emails, photoIds: z.array(id).optional() }),
+    run: (s, c, i) => s.sharePhotos(c, i.eventId, i.emails, i.photoIds),
+  }),
+  op({
+    name: "unshare_photos", title: "Stop sharing photos",
+    description: "Stop sharing a show's photos (all, or the listed photoIds) with these emails.",
+    input: z.object({ eventId: id, emails, photoIds: z.array(id).optional() }),
+    run: (s, c, i) => s.unsharePhotos(c, i.eventId, i.emails, i.photoIds),
+  }),
+  op({
+    name: "set_photos_public", title: "Public link for photos",
+    description: "Turn the public link on or off for a show's photos (all, or the listed photoIds). On: anyone with a photo's `publicUrl` can see it. Off: the link stops working for good.",
+    input: z.object({ eventId: id, enabled: z.boolean(), photoIds: z.array(id).optional() }),
+    run: (s, c, i) => s.setPhotosPublic(c, i.eventId, i.enabled, i.photoIds),
+  }),
   op({
     name: "list_rsvps", title: "List RSVPs", readOnly: true,
     description: "List events the user has RSVP'd to, optionally by status.",

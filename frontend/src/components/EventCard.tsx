@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { addedLabel, dateLabel, genreHue, priceLabel, saleLabel, statusLabel, timeLabel } from "../format";
 import type { EventView } from "../types";
+import { usePhotoDrop } from "../usePhotoDrop";
 import { Icon } from "./Icon";
 
 const QUICK: Array<["going" | "interested" | "skipped", string]> = [["going", "Going"], ["interested", "Interested"], ["skipped", "Skip"]];
@@ -9,13 +10,17 @@ const QUICK: Array<["going" | "interested" | "skipped", string]> = [["going", "G
  * Every card has the same slots in the same places: title (+ New) / acts / venue on the left, genre top-right and sale status
  * bottom-right, then a footer with time, price and the RSVP actions. Missing time or price shows a muted "TBA" in its slot.
  */
-export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, pending, locked, sharedBy, isNew, now }: {
-  event: EventView; onOpen?: () => void; openLabel?: string; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
+export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, pending, locked, sharedBy, isNew, now, onPhotosChanged }: {
+  event: EventView; /** `"photos"`: open the details already scrolled to the photos. */ onOpen?: (target?: "photos") => void; /** Photos were added by dropping them on the card. */ onPhotosChanged?: () => void; openLabel?: string; onQuick?: (status: "going" | "interested" | "skipped") => void; sharedBy?: string;
   /** The quick RSVP being saved on this card (shown as a spinner), and whether any card is saving (all quick buttons wait). */
   pending?: "going" | "interested" | "skipped"; locked?: boolean;
   /** Added in the last 7 days: gets a New pill and a highlight. */
   isNew?: boolean; now?: number;
 }) {
+  // Photos can be dropped on your own past shows (the same ones that show a Photos section in the details).
+  const drop = usePhotoDrop(event.id, () => onPhotosChanged?.());
+  const canDrop = !!onOpen && !sharedBy && !!event.past;
+  const dropProps = canDrop ? drop.handlers : {};
   const [, mon, day] = event.date.split("-");
   const price = priceLabel(event);
   const hasTime = !!(event.doorsTime || event.startTime);
@@ -26,8 +31,8 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
   const genre = event.genre?.trim();
 
   return (
-    <li className={`card ev ${event.attended ? "attended" : status ?? "undecided"}${isNew ? " isnew" : ""}`}>
-      <Main className="card-main" onOpen={onOpen} label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. ${openLabel}`}>
+    <li className={`card ev ${event.attended ? "attended" : status ?? "undecided"}${isNew ? " isnew" : ""}${canDrop && drop.state.dragging ? " dropping" : ""}`} {...dropProps}>
+      <Main className="card-main" onOpen={onOpen && (() => onOpen())} label={`${event.title}, ${dateLabel(event.date)}${added ? `. New, added ${added}` : ""}. ${openLabel}`}>
         <span className="datebox" aria-hidden="true">
           <span className="dow">{dateLabel(event.date, { weekday: "short" })}</span>
           <span className="day">{day}</span>
@@ -53,6 +58,11 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
         <span className={`line${hasTime ? "" : " tba"}`}><Icon name="clock" />{timeLabel(event)}</span>
         <span className={`line${price ? "" : " tba"}`}><Icon name="ticket" />{price ?? "Price TBA"}</span>
         <span className="acts">
+          {canDrop && !!event.photoCount && (
+            <button className="photo-count" onClick={() => onOpen!("photos")} aria-label={`${event.photoCount} ${event.photoCount === 1 ? "photo" : "photos"} of ${event.title}. Open photos`}>
+              <Icon name="camera" size={14} />{event.photoCount}
+            </button>
+          )}
           {onQuick && !event.attended ? (
             // All three stay quiet; only the one matching your RSVP is lit, in its status colour.
             <span role="group" aria-label={`RSVP for ${event.title}`} aria-busy={!!pending} className="acts-btns">
@@ -67,6 +77,9 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
           ) : null}
         </span>
       </div>
+      {canDrop && drop.state.dragging && <span className="drop-hint" aria-hidden="true">Drop to add photos to {event.title}</span>}
+      {canDrop && drop.state.status && <p role="status" className="drop-note muted small">{drop.state.status}</p>}
+      {canDrop && drop.state.error && <p role="alert" className="drop-note error small">{drop.state.error} <button className="icon-btn" aria-label="Dismiss" onClick={drop.dismiss}>×</button></p>}
     </li>
   );
 }

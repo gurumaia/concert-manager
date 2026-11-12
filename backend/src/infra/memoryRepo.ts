@@ -1,4 +1,5 @@
 import type { OAuthState, Repo } from "../domain/repo.js";
+import type { Photo, PhotoRef } from "../domain/photos.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -46,6 +47,23 @@ export class MemoryRepo implements Repo {
       if (r.sharedWith.includes(e)) out.push({ ownerId: key.slice(0, key.indexOf("#")), eventId: r.eventId });
     }
     return out;
+  }
+
+  photos = new Map<string, Photo>(); // key: user#eventId#photoId
+  async getPhoto(u: string, eventId: string, id: string) { const v = this.photos.get(this.k(u, `${eventId}#${id}`)); return v && clone(v); }
+  async listPhotos(u: string, eventId: string) {
+    return [...this.photos.entries()].filter(([k]) => k.startsWith(`${u}#${eventId}#`)).map(([, v]) => clone(v));
+  }
+  async listAllPhotos(u: string) { return [...this.photos.entries()].filter(([k]) => k.startsWith(`${u}#`)).map(([, v]) => clone(v)); }
+  async putPhoto(u: string, p: Photo) { this.photos.set(this.k(u, `${p.eventId}#${p.id}`), clone({ ...p, sharedWith: p.sharedWith.map((e) => e.toLowerCase()) })); }
+  async deletePhoto(u: string, eventId: string, id: string) { this.photos.delete(this.k(u, `${eventId}#${id}`)); }
+  async listPhotosSharedWith(email: string): Promise<PhotoRef[]> {
+    const e = email.toLowerCase();
+    return [...this.photos.entries()].filter(([, p]) => p.sharedWith.includes(e)).map(([k, p]) => ({ ownerId: k.slice(0, k.indexOf("#")), eventId: p.eventId, photoId: p.id }));
+  }
+  async findPublicPhoto(token: string): Promise<PhotoRef | undefined> {
+    for (const [k, p] of this.photos) if (p.publicToken === token) return { ownerId: k.slice(0, k.indexOf("#")), eventId: p.eventId, photoId: p.id };
+    return undefined;
   }
 
   temps = new Map<string, { value: unknown; expiresAt: number }>();

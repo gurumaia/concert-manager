@@ -3,6 +3,7 @@ import { Service, type Ctx } from "../src/domain/service.js";
 import type { UserProfile } from "../src/domain/schemas.js";
 import { IdentityError, type IdentityApi } from "../src/infra/identity.js";
 import { PlainEncryptor } from "../src/infra/crypto.js";
+import { MemoryPhotoStore } from "../src/infra/memoryPhotoStore.js";
 import { MemoryRepo } from "../src/infra/memoryRepo.js";
 import { DynamoRepo } from "../src/infra/dynamoRepo.js";
 import { CreateTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -88,15 +89,24 @@ export async function setup(kind: RepoKind = "memory") {
   const repo = kind === "dynamodb" ? await newDynamoRepo() : new MemoryRepo();
   const calendar = new FakeCalendar();
   const encryptor = new PlainEncryptor();
+  const photos = new MemoryPhotoStore("https://shows.example.com");
+  /** URL -> image bytes served by the fake downloader; unknown URLs fail like a dead link. */
+  const images = new Map<string, Uint8Array>();
   const svc = new Service({
-    repo, calendar, encryptor,
+    repo, calendar, encryptor, photos,
+    fetchImage: async (url, { maxBytes }) => {
+      const data = images.get(url);
+      if (!data) throw new Error("The image server answered 404");
+      if (data.length > maxBytes) throw new Error("The image is too large");
+      return { data };
+    },
     appUrl: "https://shows.example.com",
     buildGoogleAuthUrl: (s) => `https://google.example/auth?state=${s}`,
     now: () => new Date("2026-11-10T12:00:00Z"),
   });
   const me: Ctx = { userId: "u1", email: "me@example.com", name: "Me" };
   const her: Ctx = { userId: "u2", email: "her@example.com", name: "Her" };
-  return { repo, calendar, svc, me, her, encryptor };
+  return { repo, calendar, svc, me, her, encryptor, photos, images };
 }
 
 /** Connect a fake Google account and select the shared calendar. */
@@ -117,3 +127,8 @@ export const friedman = {
   lineup: [{ name: "Marty Friedman", role: "headliner" as const }, { name: "Opener Band", role: "opener" as const }],
   tiers: [{ name: "Pista", price: 300, fee: 45 }, { name: "Camarote", price: 600, fee: 90 }],
 };
+
+/** Smallest byte strings that sniff as each image type. */
+export const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1]);
+export const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+export const WEBP = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 69, 66, 80]);

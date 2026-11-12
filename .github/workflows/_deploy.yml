@@ -1,0 +1,142 @@
+# Reusable deploy pipeline. Called by deploy-dev and promote.
+#   validate-env -> build -> deploy -> smoke
+# The commands mirror deploy.sh, which CI does not invoke. Auth is GitHub OIDC -> IAM
+# role (infrastructure/github-oidc.yaml); there are no stored AWS keys.
+#
+# SECURITY: the caller-supplied `environment` is UNTRUSTED. It is allowlisted in a job
+# that runs BEFORE any credential is assumed, and never interpolated with `${{ }}`
+# inside a `run:` body: it goes through `env:` and is used as a quoted shell variable.
+name: _deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target env: dev | prd"
+        required: true
+        type: string
+    secrets:
+      aws_role_arn:
+        description: "ARN of the OIDC deploy role for this environment"
+        required: true
+      # Optional. When unset the stack keeps its previous value (sam deploy sends
+      # UsePreviousValue for parameters it is not given). Never printed in a run.
+      google_client_id:
+        description: "Google OAuth web client id (sign-in and Calendar)"
+        required: false
+      google_client_secret:
+        description: "Google OAuth web client secret"
+        required: false
+      setlistfm_api_key:
+        description: "setlist.fm API key"
+        required: false
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write # OIDC
+  contents: read
+
+jobs:
+  validate-env:
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - name: Allowlist the environment name
+        run: |
+          case "$ENVIRONMENT" in
+            dev | prd) : ;;
+            *) echo "::error::invalid environment: $ENVIRONMENT"; exit 1 ;;
+          esac
+
+  # --- Tests + bundles (the same commands deploy.sh runs) ----------------------
+  build:
+    needs: validate-env
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: { node-version-file: .nvmrc, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+      - run: cd backend && npm ci
+      # the Lambda bundle inlines the MCP App page, so the frontend is built first
+      - run: cd frontend && npm ci && npm run build
+      - run: cd backend && npm run build
+      - run: sam build --no-cached
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: build
+          retention-days: 1
+          include-hidden-files: true
+          path: |
+            .aws-sam
+            frontend/dist
+
+  # --- Stack deploy + site publish ----------------------------------------------
+  deploy:
+    needs: [validate-env, build]
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with: { name: build, path: . }
+      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: ${{ secrets.aws_role_arn }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: sam deploy
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.google_client_id }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.google_client_secret }}
+          SETLISTFM_API_KEY: ${{ secrets.setlistfm_api_key }}
+        run: |
+          PARAMS=(); while IFS= read -r line; do [ -n "$line" ] && PARAMS+=("$line"); done < "env/$ENVIRONMENT.params"
+          if [ -n "$GOOGLE_CLIENT_ID" ] && [ -n "$GOOGLE_CLIENT_SECRET" ]; then
+            PARAMS+=("SignInGoogleClientId=$GOOGLE_CLIENT_ID" "SignInGoogleClientSecret=$GOOGLE_CLIENT_SECRET" \
+                     "CalendarGoogleClientId=$GOOGLE_CLIENT_ID" "CalendarGoogleClientSecret=$GOOGLE_CLIENT_SECRET")
+          fi
+          [ -n "$SETLISTFM_API_KEY" ] && PARAMS+=("SetlistFmApiKey=$SETLISTFM_API_KEY")
+          sam deploy --stack-name "show-manager-$ENVIRONMENT" --region "$AWS_REGION" --resolve-s3 \
+            --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset --no-confirm-changeset \
+            --parameter-overrides "${PARAMS[@]}"
+      - name: Publish SPA (hashed assets immutable, rest no-cache) + invalidate CloudFront
+        run: |
+          STACK="show-manager-$ENVIRONMENT"
+          out() { aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+          BUCKET=$(out SiteBucketName); DIST=$(out DistributionId)
+          aws s3 sync frontend/dist/assets "s3://$BUCKET/assets" --delete \
+            --cache-control "public,max-age=31536000,immutable" --no-cli-pager --only-show-errors
+          aws s3 sync frontend/dist "s3://$BUCKET" --delete --exclude "assets/*" \
+            --cache-control "no-cache" --no-cli-pager --only-show-errors
+          aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*" --no-cli-pager --output text --query 'Invalidation.Status'
+
+  # --- Post-deploy smoke -----------------------------------------------------------
+  smoke:
+    needs: [validate-env, deploy]
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: HTTP smoke (SPA 200, MCP answers, hosted UI up)
+        run: |
+          DOMAIN=$(sed -n 's/^DomainName=//p' "env/$ENVIRONMENT.params")
+          APP="https://$DOMAIN"; AUTH="https://auth.$DOMAIN"
+          echo "App: $APP  Auth: $AUTH"
+          curl -fsS -o /dev/null -w "SPA %{http_code}\n" "$APP/"
+          # /mcp requires a token: 401 proves CloudFront -> API Gateway -> Lambda works. Fail on no response or 5xx.
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$APP/mcp" || echo 000)
+          echo "MCP $APP/mcp -> $code"
+          case "$code" in 000 | 5??) echo "::error::MCP not reachable ($code)"; exit 1 ;; esac
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$AUTH/oauth2/authorize" || echo 000)
+          echo "Hosted UI $AUTH -> $code"
+          case "$code" in 000 | 5??) echo "::error::hosted UI not reachable ($code)"; exit 1 ;; esac

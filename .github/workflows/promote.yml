@@ -1,0 +1,34 @@
+# Manual promotion to prd. This dispatch IS the release gate (GitHub Free + private has no
+# branch protection / environment reviewers). Two guards:
+#   1. a job-level `if:` EXPRESSION (not a shell test, so a branch name cannot inject);
+#   2. the OIDC trust policy: the prd role is only assumable from refs/heads/main
+#      (infrastructure/github-oidc.yaml).
+name: promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to promote to"
+        required: true
+        type: choice
+        options: [prd]
+
+run-name: "promote -> ${{ inputs.environment }} (@${{ github.ref_name }})"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  promote:
+    # Expression guard (evaluated by GitHub, not the shell): only the mainline promotes.
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      environment: ${{ inputs.environment }}
+    secrets:
+      aws_role_arn: ${{ secrets.AWS_DEPLOY_ROLE_PRD }}
+      google_client_id: ${{ secrets.GOOGLE_CLIENT_ID_PRD }}
+      google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET_PRD }}
+      setlistfm_api_key: ${{ secrets.SETLISTFM_API_KEY_PRD }}

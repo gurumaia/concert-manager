@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy the backend stack, then publish the web app.
-#   ./deploy.sh -e dev [-p aws-profile]
+#   ./deploy.sh -e dev|prd [-p aws-profile]
+# Per-environment values (stack suffix, domain) live in env/<env>.params. -e is required: there is no default environment.
 # Google values come from the environment (never committed). One client serves both Sign in with Google and Calendar:
 #   export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
 # Use SIGNIN_GOOGLE_CLIENT_ID/SECRET or CALENDAR_GOOGLE_CLIENT_ID/SECRET only to give one of them a different client.
@@ -16,8 +17,9 @@ for v in SIGNIN CALENDAR; do
   id="${v}_GOOGLE_CLIENT_ID"; sec="${v}_GOOGLE_CLIENT_SECRET"
   if [ -n "${!id}" ] && [ -z "${!sec}" ]; then echo "$id is set but $sec is empty." >&2; exit 1; fi
 done
-ENV=dev; PROFILE_ARGS=()
+ENV=""; PROFILE_ARGS=()
 while getopts "e:p:" o; do case $o in e) ENV=$OPTARG;; p) PROFILE_ARGS=(--profile "$OPTARG");; *) exit 1;; esac; done
+case "$ENV" in dev | prd) : ;; *) echo "usage: $0 -e dev|prd [-p aws-profile]" >&2; exit 1 ;; esac
 cd "$(dirname "$0")"
 STACK="show-manager-$ENV"; REGION="${AWS_REGION:-us-east-1}"
 
@@ -26,7 +28,7 @@ STACK="show-manager-$ENV"; REGION="${AWS_REGION:-us-east-1}"
 (cd frontend && npm ci && npm test && npm run build)
 (cd backend && npm test && npm run build)
 sam build --no-cached
-PARAMS=("Environment=$ENV")
+PARAMS=(); while IFS= read -r line; do [ -n "$line" ] && PARAMS+=("$line"); done < "env/$ENV.params"
 [ -n "${SIGNIN_GOOGLE_CLIENT_ID:-}" ] && PARAMS+=("SignInGoogleClientId=$SIGNIN_GOOGLE_CLIENT_ID" "SignInGoogleClientSecret=$SIGNIN_GOOGLE_CLIENT_SECRET")
 [ -n "${CALENDAR_GOOGLE_CLIENT_ID:-}" ] && PARAMS+=("CalendarGoogleClientId=$CALENDAR_GOOGLE_CLIENT_ID" "CalendarGoogleClientSecret=$CALENDAR_GOOGLE_CLIENT_SECRET")
 [ -n "${SETLISTFM_API_KEY:-}" ] && PARAMS+=("SetlistFmApiKey=$SETLISTFM_API_KEY")

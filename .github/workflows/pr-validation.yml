@@ -1,0 +1,151 @@
+# Pull-request validation. One job per RESPONSIBILITY.
+# GitHub Free + private repo has no branch protection, so a red run does not *block*
+# the merge server-side — the discipline is "never merge red".
+name: pr-validation
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # --- Type-check (backend, frontend) ------------------------------------------
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: { node-version-file: .nvmrc, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - run: cd backend && npm ci
+      - run: cd frontend && npm ci
+      - name: Types (tsc)
+        run: |
+          cd backend && npm run typecheck
+          cd ../frontend && npm run typecheck
+
+  # --- Unit tests (backend runs against DynamoDB Local) ------------------------
+  test:
+    runs-on: ubuntu-latest
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:3.1.0
+        ports: ["8765:8000"]
+    env:
+      DYNAMODB_ENDPOINT: http://127.0.0.1:8765
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: { node-version-file: .nvmrc, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - run: cd backend && npm ci && npm test
+      # the frontend imports types from backend/src, which need backend deps to resolve
+      - run: cd frontend && npm ci && npm test
+
+  # --- Builds (the same commands the deploy runs) ------------------------------
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: { node-version-file: .nvmrc, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - run: cd backend && npm ci
+      # the Lambda bundle inlines the MCP App page (frontend/dist-app/app.html), so build the frontend first
+      - run: cd frontend && npm ci && npm run build
+      - run: cd backend && npm run build
+
+  # --- Security: SAST + secret scanning ----------------------------------------
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { fetch-depth: 0 } # baseline diff + base-ref config need history
+      - name: Semgrep (SAST, blocking on NEW findings vs base)
+        env:
+          BASELINE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          docker run --rm -v "$PWD:/src" -e SEMGREP_BASELINE_COMMIT="$BASELINE" semgrep/semgrep \
+            semgrep scan --config p/default --config p/typescript --config p/github-actions \
+            --error --metrics off /src
+      - name: gitleaks (secret scan; config from base ref so a PR can't weaken its own scan)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          VER=8.21.2
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz" | tar -xz gitleaks
+          git fetch origin "$BASE_REF" --depth=1 || true
+          if git show "origin/$BASE_REF:.gitleaks.toml" > /tmp/gitleaks.toml 2>/dev/null; then
+            CFG=/tmp/gitleaks.toml   # authoritative: base-ref config, immune to PR edits
+          else
+            CFG=.gitleaks.toml       # first-introduction: base has no config yet
+          fi
+          ./gitleaks dir . --config "$CFG" --redact --verbose
+
+  # --- Dependency validation: vulns + licenses + dead code ---------------------
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with: { node-version-file: .nvmrc, cache: npm, cache-dependency-path: "**/package-lock.json" }
+      - name: Lockfile integrity (npm ci in every workspace)
+        run: |
+          for d in backend frontend; do
+            (cd "$d" && npm ci)
+          done
+      - name: Vulnerabilities (OSV-Scanner, all lockfiles)
+        continue-on-error: true # phase 1: warn only
+        run: docker run --rm -v "$PWD:/src" ghcr.io/google/osv-scanner:latest scan --recursive /src
+      - name: License allowlist (production deps)
+        continue-on-error: true # phase 1: warn only
+        run: |
+          ALLOW='MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;Python-2.0;BlueOak-1.0.0;CC-BY-4.0'
+          for d in backend frontend; do
+            (cd "$d" && npx --yes license-checker-rseidelsohn --production --onlyAllow "$ALLOW" --excludePrivatePackages)
+          done
+      - name: Dead code / unused deps (knip)
+        continue-on-error: true # phase 1: warn only
+        run: |
+          cd backend && npx --yes knip --include files,dependencies
+          cd ../frontend && npx --yes knip --include files,dependencies
+
+  # --- Infrastructure as Code (SAM template) -----------------------------------
+  iac:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: { python-version: "3.12" }
+      - uses: aws-actions/setup-sam@f84ec7d548307efafe33230528756de3c5841a17 # v2
+      - name: SAM template validate + lint
+        run: sam validate --lint --region us-east-1
+      - name: Trivy (template misconfig — blocks NEW findings; pre-existing in .trivyignore)
+        run: docker run --rm -v "$PWD:/src" aquasec/trivy:latest config --exit-code 1 --severity CRITICAL,HIGH --ignorefile /src/.trivyignore /src/template.yaml
+
+  # --- Conventions: PR title ---------------------------------------------------
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conventional-Commit PR title (becomes squash commit message)
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            refactor
+            docs
+            test
+            ci
+            build
+            perf
+            style
+            revert

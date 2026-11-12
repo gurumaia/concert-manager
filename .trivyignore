@@ -1,0 +1,4 @@
+# Trivy baseline: CRITICAL/HIGH IaC misconfig RULE TYPES in template.yaml accepted
+# so the gate fails only on NEWLY introduced misconfigurations.
+AVD-AWS-0011  # CloudFront distribution has no WAF in front (cost vs. a personal app; API throttling + authorizer instead)
+AVD-AWS-0132  # S3 encryption uses SSE-S3, not a customer managed KMS key

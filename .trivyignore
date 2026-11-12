@@ -1,0 +1,2 @@
+# Trivy baseline: CRITICAL/HIGH IaC misconfig RULE TYPES in template.yaml accepted
+# so the gate fails only on NEWLY introduced misconfigurations.

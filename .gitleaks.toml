@@ -1,0 +1,14 @@
+title = "concert-manager gitleaks config"
+
+# Extend the bundled default rules; only ADD allowlisting on top.
+[extend]
+useDefault = true
+
+# Unit tests may embed FAKE tokens/credentials as fixtures. Allowlist only test
+# files (anchored), so real source paths are still scanned.
+[allowlist]
+description = "Fake credentials in unit tests"
+paths = [
+  '''^backend/.*\.test\.ts$''',
+  '''^frontend/src/.*\.test\.tsx?$''',
+]

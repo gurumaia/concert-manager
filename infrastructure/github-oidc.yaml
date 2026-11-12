@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  One-time bootstrap (applied by hand with admin credentials, NOT by CI): the IAM roles GitHub Actions
+  assumes via OIDC to deploy Show Manager. No stored AWS keys. The prd role is assumable only from main;
+  the dev role from any branch of the repo (deploy-dev can be dispatched on a feature branch).
+  The account's GitHub OIDC provider is shared with other projects, so it is referenced, not created.
+  aws cloudformation deploy --template-file infrastructure/github-oidc.yaml --stack-name show-manager-github-oidc \
+    --capabilities CAPABILITY_NAMED_IAM --profile <admin-profile> --region us-east-1
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: gurumaia/concert-manager
+  OidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::264791813990:oidc-provider/token.actions.githubusercontent.com
+Resources:
+  DevDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: show-manager-github-deploy-dev
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref OidcProviderArn }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals: { 'token.actions.githubusercontent.com:aud': sts.amazonaws.com }
+              StringLike: { 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/*' }
+      ManagedPolicyArns: [!Ref DeployPolicy]
+  PrdDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: show-manager-github-deploy-prd
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref OidcProviderArn }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
+      ManagedPolicyArns: [!Ref DeployPolicy]
+  # sam deploy touches CloudFormation plus every service the stack uses. IAM is limited to roles named
+  # show-manager-* (Lambda execution roles are generated as <stack>-<logical id>-<suffix>).
+  DeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: show-manager-github-deploy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Services
+            Effect: Allow
+            Action:
+              - cloudformation:*
+              - lambda:*
+              - apigateway:*
+              - dynamodb:*
+              - kms:*
+              - cognito-idp:*
+              - cloudfront:*
+              - acm:*
+              - route53:*
+              - s3:*
+              - ssm:*
+              - logs:*
+              - events:*
+              - sts:GetCallerIdentity
+            Resource: '*'
+          - Sid: ShowManagerRoles
+            Effect: Allow
+            Action:
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:GetRole
+              - iam:PassRole
+              - iam:TagRole
+              - iam:UntagRole
+              - iam:UpdateAssumeRolePolicy
+              - iam:AttachRolePolicy
+              - iam:DetachRolePolicy
+              - iam:PutRolePolicy
+              - iam:DeleteRolePolicy
+              - iam:GetRolePolicy
+              - iam:ListRolePolicies
+              - iam:ListAttachedRolePolicies
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/show-manager-*'
+Outputs:
+  DevDeployRoleArn:
+    Description: Repo secret AWS_DEPLOY_ROLE_DEV
+    Value: !GetAtt DevDeployRole.Arn
+  PrdDeployRoleArn:
+    Description: Repo secret AWS_DEPLOY_ROLE_PRD
+    Value: !GetAtt PrdDeployRole.Arn

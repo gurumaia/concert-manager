@@ -25,7 +25,7 @@ describe("LineupSection", () => {
     expect(screen.queryByRole("slider")).toBeNull();
   });
 
-  it("scores each act and the whole night, saving in the background without a save button", async () => {
+  it("scores each act (no whole-night score), saving in the background without a save button", async () => {
     render(<LineupSection event={ev()} />);
     expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
     fireEvent.change(screen.getByLabelText("Headliner: Score slider"), { target: { value: "9.5" } });
@@ -35,9 +35,8 @@ describe("LineupSection", () => {
     expect(op).toHaveBeenCalledTimes(1);
     expect(op).toHaveBeenCalledWith("set_scores", { eventId: "e1", actScores: { Headliner: 9.5, "Opener Band": 5 } });
     expect(screen.getByRole("status").textContent).toContain("Saved automatically");
-    fireEvent.change(screen.getByLabelText("Whole night: Score slider"), { target: { value: "9" } });
-    await flush();
-    expect(op).toHaveBeenLastCalledWith("set_scores", { eventId: "e1", score: 9 });
+    expect(screen.getAllByRole("slider")).toHaveLength(2); // one per act, nothing for the whole night
+    expect(screen.queryByText("Whole night")).toBeNull();
   });
 
   it("typing a number and clearing an act are saved too (null clears)", async () => {

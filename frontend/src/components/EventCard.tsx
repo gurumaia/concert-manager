@@ -71,7 +71,7 @@ export function EventCard({ event, onOpen, openLabel = "Open details", onQuick, 
               ))}
             </span>
           ) : status ? (
-            <span className={`badge ${event.attended ? "attended" : status}`}>{statusLabel[event.attended ? "attended" : status]}{event.attended && event.rsvp?.score !== undefined ? ` · ★ ${event.rsvp.score}` : ""}</span>
+            <span className={`badge ${event.attended ? "attended" : status}`}>{statusLabel[event.attended ? "attended" : status]}{event.attended && event.topScore !== undefined ? ` · ★ ${event.topScore}` : ""}</span>
           ) : sharedBy ? (
             <span className="tag">from {sharedBy}</span>
           ) : null}

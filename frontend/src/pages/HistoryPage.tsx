@@ -277,7 +277,7 @@ function Row({ event: e, onOpen, onPhotosChanged }: { event: EventView; onOpen: 
         </span>
         <span className="hs-side">
           {!!e.photoCount && <span className="tag photo-tag" aria-label={`${e.photoCount} ${e.photoCount === 1 ? "photo" : "photos"}`}><Icon name="camera" size={13} />{e.photoCount}</span>}
-          {e.rsvp?.score !== undefined && <span className="tag" aria-label={`Score ${e.rsvp.score} out of 10`}>★ {e.rsvp.score}</span>}
+          {e.topScore !== undefined && <span className="tag" aria-label={`${(e.lineup?.length ?? 0) > 1 ? "Best act score" : "Score"} ${e.topScore} out of 10`} title={(e.lineup?.length ?? 0) > 1 ? "Best act score" : "Score"}>★ {e.topScore}</span>}
           {companions.length > 0 && <Avatars people={companions} />}
           {genre && <span className="genre-pill" style={{ "--h": genreHue(genre) } as CSSProperties} title={genre}>{genre}</span>}
         </span>

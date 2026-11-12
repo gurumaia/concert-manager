@@ -340,6 +340,12 @@ describe(`events and venues [${kind}]`, () => {
     await expect(svc.setScores(me, past.id, { actScores: { Nobody: 3 } })).rejects.toThrow(/not in this show's lineup/);
     await expect(svc.setScores(me, past.id, { actScores: { Headliner: 7.3 } })).rejects.toThrow();
     expect((await svc.getEvent(me, past.id)).rsvp?.actScores).toEqual({ Headliner: 10 });
+    expect((await svc.getEvent(me, past.id)).topScore).toBe(10);
+    await svc.setScores(me, past.id, { actScores: { "Opener Band": 4 } });
+    expect((await svc.listEvents(me, {})).events.find((e) => e.id === past.id)?.topScore).toBe(10); // the best act, not the last or the average
+    await svc.setScores(me, past.id, { actScores: { Headliner: null } });
+    expect((await svc.getEvent(me, past.id)).topScore).toBe(4);
+    await svc.setScores(me, past.id, { actScores: { Headliner: 10, "Opener Band": null } });
     expect((await svc.setRsvp(me, past.id, { status: "going", notes: "x" })).rsvp.actScores).toEqual({ Headliner: 10 }); // kept by other edits
     expect((await svc.setScores(me, past.id, { actScores: null })).rsvp.actScores).toBeUndefined();
     await svc.setScores(me, past.id, { actScores: { Headliner: 6 } });

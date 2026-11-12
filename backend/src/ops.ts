@@ -133,7 +133,8 @@ export const ops: Op[] = [
   op({
     name: "set_scores", title: "Score a show",
     description:
-      "Score a show the user attended (going, date passed), 0-10 in steps of 0.5: `score` for the whole night and/or `actScores` per act of the lineup (act name -> score). " +
+      "Score the acts of a show the user attended (going, date passed), 0-10 in steps of 0.5: `actScores` maps act name -> score. " +
+      "Lists show the best act score of the show (`topScore`). For a show with a single act (or no lineup) pass `score` instead. " +
       "Act scores merge into the existing ones; null clears one act (or all with actScores null). Lighter than set_rsvp: no calendar sync.",
     input: z.object({ eventId: id, score: RsvpInput.shape.score, actScores: RsvpInput.shape.actScores }),
     run: (s, c, i) => s.setScores(c, i.eventId, i),

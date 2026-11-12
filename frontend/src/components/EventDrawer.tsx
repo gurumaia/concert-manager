@@ -4,6 +4,7 @@ import { dateLabel, priceLabel, saleLabel, tierLabel, timeLabel } from "../forma
 import type { EventView, VenueRow } from "../types";
 import { EventForm } from "./EventForm";
 import { Modal } from "./Modal";
+import { LineupSection } from "./LineupSection";
 import { RsvpPanel } from "./RsvpPanel";
 import { SetlistSection } from "./SetlistSection";
 
@@ -67,15 +68,6 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
           </p>
         ) : <p className="muted">Venue not set</p>}
 
-        {event.lineup?.length ? (
-          <>
-            <h3>Lineup</h3>
-            <ul className="plain">
-              {event.lineup.map((a, i) => <li key={i}>{a.name}{a.role && a.role !== "headliner" ? <span className="muted"> · {a.role}</span> : null}{a.startTime ? <span className="muted"> · {a.startTime}</span> : null}</li>)}
-            </ul>
-          </>
-        ) : null}
-
         {event.tiers?.length ? (
           <>
             <h3>Tickets {event.saleStatus && event.saleStatus !== "unknown" ? <span className={`tag sale-${event.saleStatus}`}>{saleLabel[event.saleStatus]}</span> : null}</h3>
@@ -93,6 +85,8 @@ export function EventDrawer({ eventId, initial, venues, readOnly, onClose, onCha
         {event.description && <p>{event.description}</p>}
         {event.notes && <p className="note">{event.notes}</p>}
       </div>
+
+      <LineupSection event={event} readOnly={readOnly} onSaved={onChanged} />
 
       <SetlistSection event={event} readOnly={readOnly} onUpdated={(e) => { setEvent(e); onChanged(); }} />
 

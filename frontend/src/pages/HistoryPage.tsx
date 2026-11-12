@@ -272,6 +272,7 @@ function Row({ event: e, onOpen }: { event: EventView; onOpen: () => void }) {
           <span className="hs muted">{e.venue ? `${e.venue.name}${e.venue.city ? ` · ${e.venue.city}` : ""}` : "Venue not set"}</span>
         </span>
         <span className="hs-side">
+          {e.rsvp?.score !== undefined && <span className="tag" aria-label={`Score ${e.rsvp.score} out of 10`}>★ {e.rsvp.score}</span>}
           {companions.length > 0 && <Avatars people={companions} />}
           {genre && <span className="genre-pill" style={{ "--h": genreHue(genre) } as CSSProperties} title={genre}>{genre}</span>}
         </span>

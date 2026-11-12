@@ -102,6 +102,9 @@ export type ShowEvent = Omit<EventInput, "venueId"> & {
 export const RsvpStatus = z.enum(["interested", "going", "skipped", "attended"]);
 export type RsvpStatus = z.infer<typeof RsvpStatus>;
 
+const ScoreValue = z.number().min(0).max(10).multipleOf(0.5);
+const ScoreMap = z.record(z.string().min(1), ScoreValue.nullable());
+
 export const RsvpInput = z.object({
   status: RsvpStatus,
   tierName: z.string().optional(),
@@ -110,9 +113,16 @@ export const RsvpInput = z.object({
   feesPaid: z.number().nonnegative().optional(),
   companions: z.array(z.string()).optional().describe("Who is going along"),
   notes: z.string().optional(),
+  score: z.number().min(0).max(10).multipleOf(0.5).nullable().optional()
+    .describe("How good the show was overall, 0-10 in steps of 0.5. Only for shows already attended (going + past date). null clears it"),
+  actScores: ScoreMap.nullable().optional()
+    .describe("Scores per act of the lineup (act name -> 0-10 in steps of 0.5), merged into the existing ones; an act set to null is cleared, actScores null clears all"),
 });
 export type RsvpInput = z.infer<typeof RsvpInput>;
-export type Rsvp = RsvpInput & {
+export type Rsvp = Omit<RsvpInput, "score" | "actScores"> & {
+  score?: number;
+  /** Per-act scores keyed by the act's name in the lineup. */
+  actScores?: Record<string, number>;
   eventId: string;
   sharedWith: string[];
   calendarId?: string;

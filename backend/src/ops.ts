@@ -131,6 +131,14 @@ export const ops: Op[] = [
     run: (s, c, { eventId, ...rsvp }) => s.setRsvp(c, eventId, rsvp),
   }),
   op({
+    name: "set_scores", title: "Score a show",
+    description:
+      "Score a show the user attended (going, date passed), 0-10 in steps of 0.5: `score` for the whole night and/or `actScores` per act of the lineup (act name -> score). " +
+      "Act scores merge into the existing ones; null clears one act (or all with actScores null). Lighter than set_rsvp: no calendar sync.",
+    input: z.object({ eventId: id, score: RsvpInput.shape.score, actScores: RsvpInput.shape.actScores }),
+    run: (s, c, i) => s.setScores(c, i.eventId, i),
+  }),
+  op({
     name: "remove_rsvp", title: "Remove RSVP", destructive: true,
     description: "Remove the RSVP (and its calendar entry). The event stays in the list as undecided.",
     input: z.object({ eventId: id }),

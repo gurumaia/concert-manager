@@ -54,7 +54,7 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
   return (
     <section aria-labelledby="rsvp-h" className="panel">
       <h3 id="rsvp-h">Your RSVP</h3>
-      <div className="seg" role="group" aria-label="RSVP status">
+      <div className="seg" role="group" aria-label="RSVP status" aria-busy={busy}>
         {STATUSES.map((s) => (
           <button key={s} className={`seg-btn ${r?.status === s ? `on ${past && s === "going" ? "attended" : s}` : ""}`} aria-pressed={r?.status === s} disabled={busy} onClick={() => save(s)}>
             {label(s)}

@@ -44,6 +44,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
   const [notice, setNotice] = useState<string>();
   const [last, setLast] = useState<{ event: EventView; from: Status | null; to: Status }>(); // the one RSVP change Undo can take back
   const busy = useRef(false);
+  const [pending, setPending] = useState<{ id: string; status: Status }>(); // the quick RSVP being saved, so the card can show it
   // One reference time per data load, so the 7-day window does not shift while you browse.
   const nowMs = useMemo(() => Date.now(), [events]); // eslint-disable-line react-hooks/exhaustive-deps
   const today = new Date().toISOString().slice(0, 10);
@@ -111,6 +112,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
   async function quick(e: EventView, status: Status) {
     if (busy.current) return;
     busy.current = true;
+    setPending({ id: e.id, status });
     setQuickError(undefined); setNotice(undefined);
     const from = (e.rsvp?.status as Status | undefined) ?? null;
     try {
@@ -121,7 +123,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
       }
       await reload();
       if (embed) { setLast({ event: e, from, to: status }); embed.onDecision?.({ event: e, from, to: status, undo: false }); }
-    } catch (err) { setQuickError((err as Error).message); } finally { busy.current = false; }
+    } catch (err) { setQuickError((err as Error).message); } finally { busy.current = false; setPending(undefined); }
   }
 
   /** Put the last RSVP change back: its previous status, or no RSVP at all if there was none. */
@@ -214,7 +216,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
             <button className="link" aria-pressed={onlyNew} onClick={() => setOnlyNew((v) => !v)}>{onlyNew ? "Show all" : "Show only new"}</button>
           </div>
           <ul className="cards">
-            {added.map((e) => <EventCard key={e.id} event={e} isNew now={nowMs} {...openProps(e)} onQuick={(s) => quick(e, s)} />)}
+            {added.map((e) => <EventCard key={e.id} event={e} isNew now={nowMs} {...openProps(e)} onQuick={(s) => quick(e, s)} pending={pending?.id === e.id ? pending.status : undefined} locked={!!pending} />)}
           </ul>
         </section>
       )}
@@ -223,7 +225,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
         <section key={key} aria-labelledby={`m-${key}`}>
           <h2 className="month" id={`m-${key}`}>{monthLabel(key)}</h2>
           <ul className="cards">
-            {list.map((e) => <EventCard key={e.id} event={e} {...openProps(e)} onQuick={(s) => quick(e, s)} />)}
+            {list.map((e) => <EventCard key={e.id} event={e} {...openProps(e)} onQuick={(s) => quick(e, s)} pending={pending?.id === e.id ? pending.status : undefined} locked={!!pending} />)}
           </ul>
         </section>
       ))}

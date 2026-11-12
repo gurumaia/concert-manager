@@ -6,6 +6,7 @@ import { AppError, type Ctx, type Service } from "./domain/service.js";
 import { errorText, handleMcpRequest } from "./mcp.js";
 import { opsByName } from "./ops.js";
 import { ZodError, z } from "zod";
+import { MemoryPhotoStore } from "./infra/memoryPhotoStore.js";
 import type { Repo } from "./domain/repo.js";
 import type { Encryptor } from "./infra/crypto.js";
 import { IdentityError, type IdentityApi } from "./infra/identity.js";
@@ -27,6 +28,8 @@ export type AppDeps = {
   googleSignIn?: boolean;
   /** The triage page served as an MCP App (ui://show-manager/triage). */
   triageHtml?: string;
+  /** Local development: stands in for S3 (serves the "signed" URLs of MemoryPhotoStore). */
+  devStore?: MemoryPhotoStore;
 };
 
 type Env = { Variables: { ctx: Ctx } };
@@ -44,6 +47,25 @@ export function createApp(d: AppDeps) {
   const fetchFn = d.fetchFn ?? fetch;
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  // Public photo links: unguessable token, no sign-in. Redirects to a short-lived signed storage URL; revoking the link ends access.
+  app.get("/api/public/photos/:token", async (c) => {
+    const url = await d.svc.publicPhotoUrl(c.req.param("token")).catch(() => undefined);
+    if (!url) return c.text("Not found", 404, { "cache-control": "no-store" });
+    return c.redirect(url, 302);
+  });
+
+  if (d.devStore) {
+    const store = d.devStore;
+    app.put("/api/dev-store/:id", async (c) => {
+      await store.put(MemoryPhotoStore.keyOf(c.req.param("id")), new Uint8Array(await c.req.arrayBuffer()), c.req.header("content-type") ?? "application/octet-stream");
+      return c.body(null, 200);
+    });
+    app.get("/api/dev-store/:id", (c) => {
+      const o = store.objects.get(MemoryPhotoStore.keyOf(c.req.param("id")));
+      return o ? c.body(o.data as Uint8Array<ArrayBuffer>, 200, { "content-type": o.contentType }) : c.text("Not found", 404);
+    });
+  }
 
   // ---------------------------------------------------------------- OAuth server for MCP clients (claude.ai)
   // The login page is this app's own (/login). Claude registers dynamically, is sent to /authorize, which hands the browser to

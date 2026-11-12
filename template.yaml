@@ -75,6 +75,32 @@ Resources:
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
       SSESpecification: { SSEEnabled: true }
 
+  # Show photos. Private: the browser uploads with signed PUT URLs and views with signed GET URLs issued by the API.
+  PhotosBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Sub 'https://${DomainName}']
+            AllowedMethods: [PUT]
+            AllowedHeaders: ['*']
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          # Uploads that were never confirmed.
+          - { Id: expire-unconfirmed-uploads, Status: Enabled, Prefix: tmp/, ExpirationInDays: 1 }
+          - { Id: abort-incomplete-multipart, Status: Enabled, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } }
+
   # Encrypts the stored Google refresh tokens.
   SecretsKey:
     Type: AWS::KMS::Key
@@ -244,6 +270,7 @@ Resources:
           GOOGLE_CLIENT_ID: !Ref CalendarGoogleClientId
           GOOGLE_CLIENT_SECRET: !Ref CalendarGoogleClientSecret
           SETLISTFM_API_KEY: !Ref SetlistFmApiKey
+          PHOTOS_BUCKET: !Ref PhotosBucket
           NODE_OPTIONS: --enable-source-maps
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref Table }
@@ -251,6 +278,12 @@ Resources:
             - Effect: Allow
               Action: dynamodb:Query
               Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}/index/gsi1'
+            - Effect: Allow
+              Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+              Resource: !Sub '${PhotosBucket.Arn}/*'
+            - Effect: Allow # without it S3 answers 403 instead of 404 for a missing object
+              Action: s3:ListBucket
+              Resource: !GetAtt PhotosBucket.Arn
             - Effect: Allow
               Action: [kms:Encrypt, kms:Decrypt]
               Resource: !GetAtt SecretsKey.Arn
@@ -387,5 +420,7 @@ Outputs:
     Value: !Ref UserPoolClient
   SiteBucketName:
     Value: !Ref SiteBucket
+  PhotosBucketName:
+    Value: !Ref PhotosBucket
   DistributionId:
     Value: !Ref Distribution

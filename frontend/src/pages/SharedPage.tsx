@@ -20,7 +20,7 @@ export function SharedPage() {
       <ul className="cards">
         {items?.map((e) => <EventCard key={e.id + e.sharedBy.id} event={e} sharedBy={e.sharedBy.name ?? e.sharedBy.email} onOpen={() => setOpen(e)} />)}
       </ul>
-      {open && <EventDrawer initial={open} readOnly venues={[]} onClose={() => setOpen(undefined)} onChanged={load} />}
+      {open && <EventDrawer initial={open} readOnly ownerId={open.sharedBy.id} venues={[]} onClose={() => setOpen(undefined)} onChanged={load} />}
     </>
   );
 }

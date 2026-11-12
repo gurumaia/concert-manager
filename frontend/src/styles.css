@@ -219,7 +219,7 @@ main.centered { padding: 1rem; }
   background: hsl(var(--h) var(--gp-s) var(--gp-bg-l)); color: hsl(var(--h) var(--gp-s) var(--gp-fg-l)); border: 1px solid hsl(var(--h) var(--gp-s) var(--gp-bd-l)); }
 .card.ev .foot { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 14rem; align-items: center; gap: .5rem 1rem; padding: .55rem 1rem;
   border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 55%, transparent); font-size: .88rem; color: var(--muted); }
-.card.ev .acts { display: flex; justify-content: flex-end; }
+.card.ev .acts { display: flex; justify-content: flex-end; align-items: center; gap: .5rem; }
 .card.ev .acts-btns { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
 /* Narrow cards (phones and tablets): time and price flow side by side while they fit; when they do not, a whole item wraps to the
    next line instead of being squeezed or overlapping. Wide cards keep the aligned columns above. */
@@ -392,3 +392,36 @@ main.centered { padding: 1rem; }
 .score-row input[type="range"].unrated { opacity: .5; }
 .save-note { margin: .4rem 0 0; } .save-note .ok { color: var(--going); font-weight: 800; }
 @media (max-width: 560px) { .lineup-row.scored { grid-template-columns: 2.4rem minmax(0, 1fr); } .lineup-row.scored .score-row { grid-column: 1 / -1; } .lineup-total { flex-wrap: wrap; } .lineup-total .score-row { width: 100%; max-width: none; } }
+/* photos */
+.photos-section { margin: 1rem 0; }
+.photo-grid { list-style: none; padding: 0; margin: .5rem 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: .5rem; }
+.photo-tile { position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface-2); cursor: pointer; }
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.photo-badge { position: absolute; left: .3rem; bottom: .3rem; font-size: .7rem; font-weight: 700; padding: .05rem .4rem; border-radius: 999px; background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.photo-share-all { margin-top: .5rem; }
+.photo-share-all summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+.lightbox-stage { display: flex; align-items: center; justify-content: center; gap: .25rem; background: var(--surface-2); border-radius: 10px; padding: .25rem; }
+.lightbox-stage img { max-width: 100%; max-height: 62vh; object-fit: contain; border-radius: 8px; flex: 1 1 auto; min-width: 0; }
+.lightbox-stage .nav { font-size: 2rem; min-width: 44px; min-height: 44px; flex: none; }
+.share-panel .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: .4rem 0; }
+.share-panel .row input { flex: 1 1 12rem; min-width: 0; }
+.share-panel .check { display: flex; gap: .5rem; align-items: flex-start; margin: .5rem 0; }
+.share-panel .check input { margin-top: .2rem; }
+
+/* drop photos on a history row */
+.hist-item { position: relative; }
+.hist-item.dropping { border-radius: 10px; }
+.hist-item.dropping > *, .card.dropping > * { pointer-events: none; } /* children must not steal dragenter/leave */
+.drop-hint { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: .5rem; font-weight: 700; color: var(--text); background: color-mix(in srgb, var(--surface) 90%, transparent); border: 2px dashed var(--accent); border-radius: 10px; }
+.drop-note { margin: 0; padding: .1rem .9rem .5rem 5.4rem; }
+.drop-note .icon-btn { font-size: 1rem; min-width: 24px; min-height: 24px; padding: 0 .3rem; }
+
+.card.ev { position: relative; }
+.card .drop-note { padding: .1rem 1rem .6rem 1rem; }
+
+/* photo counter: next to the status badge on a card (opens the photos), a plain tag in History rows */
+.photo-count { font: inherit; font-size: .8rem; font-weight: 700; display: inline-flex; align-items: center; gap: .3rem; min-height: 32px; padding: .15rem .6rem; border-radius: 999px; cursor: pointer; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); }
+.photo-count:hover { background: var(--surface); border-color: var(--muted); }
+.photo-count:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.photo-tag { display: inline-flex; align-items: center; gap: .25rem; }

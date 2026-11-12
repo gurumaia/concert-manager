@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { OAuthState, Repo } from "../domain/repo.js";
+import type { Photo, PhotoRef } from "../domain/photos.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 /**
@@ -18,6 +19,9 @@ import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
  *   U#<user>  E#<id>             event
  *   U#<user>  R#<eventId>        rsvp
  *   U#<user>  SH#<eventId>#<em>  share index entry (gsi1pk SHARE#<email>)
+ *   U#<user>  PH#<eventId>#<id>  photo (metadata; the image lives in object storage)
+ *   U#<user>  PHS#<id>#<email>   photo share index entry (gsi1pk PSHARE#<email>)
+ *   U#<user>  PHP#<id>           photo public-link index entry (gsi1pk PUB#<token>)
  *   OAUTH#<state>  STATE         pending Google OAuth handshake (ttl)
  */
 export class DynamoRepo implements Repo {
@@ -158,6 +162,53 @@ export class DynamoRepo implements Repo {
     return out;
   }
 
+  getPhoto(u: string, eventId: string, id: string) { return this.getItem<Photo>(this.pk(u), `PH#${eventId}#${id}`); }
+  listPhotos(u: string, eventId: string) { return this.listPrefix<Photo>(this.pk(u), `PH#${eventId}#`); }
+
+  listAllPhotos(u: string) { return this.listPrefix<Photo>(this.pk(u), "PH#"); }
+
+  private photoOps(u: string, photo: Photo, previous?: Photo): TxItem[] {
+    const pk = this.pk(u);
+    const ref: PhotoRef = { ownerId: u, eventId: photo.eventId, photoId: photo.id };
+    const ops: TxItem[] = [];
+    const before = new Set(previous?.sharedWith ?? []);
+    const after = new Set(photo.sharedWith.map((e) => e.toLowerCase()));
+    for (const e of after) {
+      if (!before.has(e)) ops.push({ Put: { TableName: this.table, Item: { pk, sk: `PHS#${photo.id}#${e}`, gsi1pk: `PSHARE#${e}`, gsi1sk: `${u}#${photo.eventId}#${photo.id}`, data: ref } } });
+    }
+    for (const e of before) if (!after.has(e)) ops.push({ Delete: { TableName: this.table, Key: { pk, sk: `PHS#${photo.id}#${e}` } } });
+    if (photo.publicToken && photo.publicToken !== previous?.publicToken) {
+      ops.push({ Put: { TableName: this.table, Item: { pk, sk: `PHP#${photo.id}`, gsi1pk: `PUB#${photo.publicToken}`, gsi1sk: "P", data: ref } } });
+    } else if (!photo.publicToken && previous?.publicToken) {
+      ops.push({ Delete: { TableName: this.table, Key: { pk, sk: `PHP#${photo.id}` } } });
+    }
+    return ops;
+  }
+  async putPhoto(u: string, photo: Photo) {
+    const previous = await this.getPhoto(u, photo.eventId, photo.id);
+    const ops = [{ Put: { TableName: this.table, Item: { pk: this.pk(u), sk: `PH#${photo.eventId}#${photo.id}`, data: photo } } }, ...this.photoOps(u, photo, previous)];
+    await this.doc.send(new TransactWriteCommand({ TransactItems: ops }));
+  }
+  async deletePhoto(u: string, eventId: string, id: string) {
+    const previous = await this.getPhoto(u, eventId, id);
+    if (!previous) return;
+    const gone: Photo = { ...previous, sharedWith: [], publicToken: undefined };
+    const ops = [{ Delete: { TableName: this.table, Key: { pk: this.pk(u), sk: `PH#${eventId}#${id}` } } }, ...this.photoOps(u, gone, previous)];
+    await this.doc.send(new TransactWriteCommand({ TransactItems: ops }));
+  }
+  private async queryRefs(gsi1pk: string): Promise<PhotoRef[]> {
+    const out: PhotoRef[] = [];
+    let key: Record<string, unknown> | undefined;
+    do {
+      const r = await this.doc.send(new QueryCommand({ TableName: this.table, IndexName: "gsi1", KeyConditionExpression: "gsi1pk = :p", ExpressionAttributeValues: { ":p": gsi1pk }, ExclusiveStartKey: key }));
+      for (const i of r.Items ?? []) out.push(i.data as PhotoRef);
+      key = r.LastEvaluatedKey;
+    } while (key);
+    return out;
+  }
+  listPhotosSharedWith(email: string) { return this.queryRefs(`PSHARE#${email.toLowerCase()}`); }
+  async findPublicPhoto(token: string) { return (await this.queryRefs(`PUB#${token}`))[0]; }
+
   async putTemp(key: string, value: unknown, expiresAt: number) {
     await this.putItem(`TMP#${key}`, "V", { value, expiresAt }, { ttl: Math.floor(expiresAt / 1000) + 3600 });
   }
@@ -183,3 +234,4 @@ export class DynamoRepo implements Repo {
 }
 
 type TxInput = ConstructorParameters<typeof TransactWriteCommand>[0];
+type TxItem = NonNullable<TxInput["TransactItems"]>[number];

@@ -1,3 +1,4 @@
+import type { Photo, PhotoRef } from "./photos.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "./schemas.js";
 
 /** A pending Google OAuth handshake, keyed by the random `state` value. */
@@ -29,6 +30,17 @@ export interface Repo {
   listSharedWith(email: string): Promise<Array<{ ownerId: string; eventId: string }>>;
   /** Resolve a user by email (for showing who shared). */
   findUserByEmail(email: string): Promise<UserProfile | undefined>;
+
+  getPhoto(userId: string, eventId: string, id: string): Promise<Photo | undefined>;
+  listPhotos(userId: string, eventId: string): Promise<Photo[]>;
+  /** Every photo of the user (for per-show counts in lists). */
+  listAllPhotos(userId: string): Promise<Photo[]>;
+  /** Also maintains the email-share and public-link indexes. */
+  putPhoto(userId: string, photo: Photo): Promise<void>;
+  deletePhoto(userId: string, eventId: string, id: string): Promise<void>;
+  /** Photos other users shared with this email. */
+  listPhotosSharedWith(email: string): Promise<PhotoRef[]>;
+  findPublicPhoto(token: string): Promise<PhotoRef | undefined>;
 
   /** Short-lived records (OAuth registrations, authorize requests, codes). Callers must check expiry: DynamoDB TTL is lazy. */
   putTemp(key: string, value: unknown, expiresAt: number): Promise<void>;

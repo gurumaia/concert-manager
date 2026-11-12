@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   DEFAULT_TZ,
   buildCalendarEvent,
@@ -7,6 +7,10 @@ import {
   syncsToCalendar,
   type CalendarGateway,
 } from "./calendar.js";
+import {
+  MAX_INLINE_BYTES, MAX_PHOTOS_PER_EVENT, MAX_PHOTO_BYTES, MAX_THUMB_BYTES, PHOTO_TYPES, sniffImage,
+  type ImageFetcher, type Photo, type PhotoStore, type PhotoType, type PhotoView,
+} from "./photos.js";
 import type { Repo } from "./repo.js";
 import type { SetlistGateway } from "./setlist.js";
 import type {
@@ -40,7 +44,7 @@ export type SetlistActResult = { act: string; status: "found" | "not_found" | "k
  * `past`: the show's date is over where it happens. `attended`: you were going and it is past, so you went. There is no stored
  * "attended" any more; a past show you did not go to has to be marked skipped.
  */
-export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean };
+export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean; /** Photos you can see on this show (yours, or the ones shared with you). */ photoCount: number };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
 type VenueResolution = { id?: string; pending?: VenueInput; note?: VenueNote };
@@ -67,6 +71,10 @@ export type ServiceDeps = {
   appUrl?: string;
   /** setlist.fm lookup; absent when no API key is configured. */
   setlists?: SetlistGateway;
+  /** Object storage for photos; without it photo operations answer "not configured". */
+  photos?: PhotoStore;
+  /** Downloads images for add_photo_from_url (must refuse private addresses). */
+  fetchImage?: ImageFetcher;
   buildGoogleAuthUrl?: (state: string, baseUrl: string) => string;
   now?: () => Date;
 };
@@ -485,11 +493,11 @@ export class Service {
   }
 
   /** The one place that decides "did I go": going (or the legacy stored "attended") on a show whose date is over at its venue. */
-  private toView(e: ShowEvent, venue: Venue | null, rsvp: Rsvp | null, today: (v?: Venue) => string): EventView {
+  private toView(e: ShowEvent, venue: Venue | null, rsvp: Rsvp | null, today: (v?: Venue) => string, photoCount = 0): EventView {
     const r = rsvp && rsvp.status === "attended" ? { ...rsvp, status: "going" as const } : rsvp;
     const past = e.date < today(venue ?? undefined);
     // The venue shows the name it had on the day of the show; `currentName` and `names` cover the rest of its history.
-    return { ...e, venue: venue ? { ...venue, name: nameAt(venue, e.date), currentName: nameAt(venue, today(venue)), names: venueNames(venue) } : null, rsvp: r, past, attended: past && r?.status === "going" };
+    return { ...e, venue: venue ? { ...venue, name: nameAt(venue, e.date), currentName: nameAt(venue, today(venue)), names: venueNames(venue) } : null, rsvp: r, past, attended: past && r?.status === "going", photoCount };
   }
 
   /** Save (or, with no songs, remove) the setlist one act played. Manual setlists are never replaced by lookups. */
@@ -572,6 +580,7 @@ export class Service {
     let calendar: SyncResult = { status: "skipped" };
     if (rsvp?.calendarEventId) calendar = await this.removeFromCalendar(ctx, rsvp);
     await this.repo.deleteRsvp(ctx.userId, id);
+    for (const p of await this.repo.listPhotos(ctx.userId, id)) await this.removePhoto(ctx, p);
     await this.repo.deleteEvent(ctx.userId, id);
     return { deleted: id, calendar };
   }
@@ -584,9 +593,11 @@ export class Service {
       limit?: number; offset?: number; sort?: "asc" | "desc";
     } = {},
   ) {
-    const [events, rsvps, venues] = await Promise.all([
-      this.repo.listEvents(ctx.userId), this.repo.listRsvps(ctx.userId), this.repo.listVenues(ctx.userId),
+    const [events, rsvps, venues, photos] = await Promise.all([
+      this.repo.listEvents(ctx.userId), this.repo.listRsvps(ctx.userId), this.repo.listVenues(ctx.userId), this.repo.listAllPhotos(ctx.userId),
     ]);
+    const photoCounts = new Map<string, number>();
+    for (const p of photos) photoCounts.set(p.eventId, (photoCounts.get(p.eventId) ?? 0) + 1);
     const rMap = new Map(rsvps.map((r) => [r.eventId, r]));
     const vMap = new Map(venues.map((v) => [v.id, v]));
     const todayByZone = new Map<string, string>();
@@ -597,7 +608,7 @@ export class Service {
     };
     const today = this.now().slice(0, 10);
     const q = f.text ? norm(f.text) : undefined;
-    let out = events.map<EventView>((e) => this.toView(e, (e.venueId && vMap.get(e.venueId)) || null, rMap.get(e.id) ?? null, todayIn));
+    let out = events.map<EventView>((e) => this.toView(e, (e.venueId && vMap.get(e.venueId)) || null, rMap.get(e.id) ?? null, todayIn, photoCounts.get(e.id) ?? 0));
     out = out.filter((e) => {
       if (f.from && e.date < f.from) return false;
       if (f.to && e.date > f.to) return false;
@@ -631,11 +642,12 @@ export class Service {
   }
 
   private async view(ctx: Ctx, e: ShowEvent): Promise<EventView> {
-    const [venue, rsvp] = await Promise.all([
+    const [venue, rsvp, photos] = await Promise.all([
       e.venueId ? this.repo.getVenue(ctx.userId, e.venueId) : undefined,
       this.repo.getRsvp(ctx.userId, e.id),
+      this.repo.listPhotos(ctx.userId, e.id),
     ]);
-    return this.toView(e, venue ?? null, rsvp ?? null, (v) => this.todayAt(v));
+    return this.toView(e, venue ?? null, rsvp ?? null, (v) => this.todayAt(v), photos.length);
   }
 
   // ------------------------------------------------------------------- RSVP
@@ -750,20 +762,196 @@ export class Service {
     return { eventId, sharedWith: next.sharedWith };
   }
 
-  /** RSVPs other people shared with me (read-only). */
+  /** Shows other people shared with me (read-only): shared RSVPs, plus shows where only photos were shared (no RSVP details). */
   async listSharedWithMe(ctx: Ctx) {
     const email = (await this.ensureUser(ctx)).email;
     if (!email) return [];
-    const refs = await this.repo.listSharedWith(email);
+    const rsvpRefs = await this.repo.listSharedWith(email);
+    const photoRefs = await this.repo.listPhotosSharedWith(email);
+    const withRsvp = new Set(rsvpRefs.map((r) => `${r.ownerId}#${r.eventId}`));
+    const refs = [...rsvpRefs, ...photoRefs.filter((r, i, all) => !withRsvp.has(`${r.ownerId}#${r.eventId}`) && all.findIndex((x) => x.ownerId === r.ownerId && x.eventId === r.eventId) === i)];
     const out: Array<EventView & { sharedBy: { id: string; name?: string; email?: string } }> = [];
     for (const { ownerId, eventId } of refs) {
       const e = await this.repo.getEvent(ownerId, eventId);
       if (!e) continue;
       const owner = await this.repo.getUser(ownerId);
       const view = await this.view({ userId: ownerId }, e);
-      out.push({ ...view, sharedBy: { id: ownerId, name: owner?.name, email: owner?.email } });
+      view.photoCount = (await this.repo.listPhotos(ownerId, eventId)).filter((p) => p.sharedWith.includes(email.toLowerCase())).length; // never the owner's total
+      out.push({ ...(withRsvp.has(`${ownerId}#${eventId}`) ? view : { ...view, rsvp: null, attended: false }), sharedBy: { id: ownerId, name: owner?.name, email: owner?.email } });
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // ------------------------------------------------------------------ photos
+  private get store(): PhotoStore {
+    if (!this.d.photos) throw new AppError("invalid", "Photo storage is not configured on this server.");
+    return this.d.photos;
+  }
+  private who = (ctx: Ctx) => encodeURIComponent(ctx.userId);
+  private photoKeys = (ctx: Ctx, eventId: string, id: string) => ({ key: `p/${this.who(ctx)}/${eventId}/${id}`, thumbKey: `p/${this.who(ctx)}/${eventId}/${id}.thumb` });
+  private tmpKeys = (ctx: Ctx, id: string) => ({ key: `tmp/${this.who(ctx)}/${id}`, thumbKey: `tmp/${this.who(ctx)}/${id}.thumb` });
+
+  private async checkRoom(ctx: Ctx, eventId: string) {
+    await this.mustEvent(ctx, eventId);
+    if ((await this.repo.listPhotos(ctx.userId, eventId)).length >= MAX_PHOTOS_PER_EVENT) {
+      throw new AppError("invalid", `A show can have at most ${MAX_PHOTOS_PER_EVENT} photos. Delete one first.`);
+    }
+  }
+  private cleanCaption = (c?: string | null) => c?.trim().slice(0, 300) || undefined;
+
+  /** Step 1 of a browser upload: signed URLs to send the file (and its small preview) straight to storage. */
+  async requestPhotoUpload(ctx: Ctx, eventId: string, input: { contentType: string; bytes: number; thumbBytes?: number }) {
+    if (!(PHOTO_TYPES as readonly string[]).includes(input.contentType)) throw new AppError("invalid", "Photos must be JPEG, PNG or WebP.");
+    if (input.bytes <= 0 || input.bytes > MAX_PHOTO_BYTES) throw new AppError("invalid", `Photos can be at most ${MAX_PHOTO_BYTES / 1024 / 1024} MB.`);
+    if (input.thumbBytes !== undefined && (input.thumbBytes <= 0 || input.thumbBytes > MAX_THUMB_BYTES)) throw new AppError("invalid", "The preview image is too large.");
+    await this.checkRoom(ctx, eventId);
+    const photoId = randomUUID();
+    const k = this.tmpKeys(ctx, photoId);
+    return {
+      photoId,
+      upload: await this.store.presignPut(k.key, input.contentType, input.bytes),
+      thumbUpload: input.thumbBytes ? await this.store.presignPut(k.thumbKey, "image/jpeg", input.thumbBytes) : undefined,
+    };
+  }
+
+  /** Step 2: check what was uploaded really is a photo of an allowed size, then file it under the show. */
+  async confirmPhoto(ctx: Ctx, eventId: string, photoId: string, caption?: string): Promise<PhotoView> {
+    await this.checkRoom(ctx, eventId);
+    const tmp = this.tmpKeys(ctx, photoId);
+    const fin = this.photoKeys(ctx, eventId, photoId);
+    const head = await this.store.head(tmp.key);
+    if (!head) throw new AppError("not_found", "That upload was not found or has expired. Try again.");
+    const drop = async () => { await this.store.delete(tmp.key); await this.store.delete(tmp.thumbKey); };
+    const type = sniffImage((await this.store.peek(tmp.key, 12)) ?? new Uint8Array());
+    if (!type || head.bytes > MAX_PHOTO_BYTES) { await drop(); throw new AppError("invalid", "That file is not a JPEG, PNG or WebP photo within the size limit."); }
+    await this.store.copy(tmp.key, fin.key, type);
+    let thumbKey: string | undefined;
+    const th = await this.store.head(tmp.thumbKey);
+    if (th && th.bytes <= MAX_THUMB_BYTES && sniffImage((await this.store.peek(tmp.thumbKey, 12)) ?? new Uint8Array()) === "image/jpeg") {
+      await this.store.copy(tmp.thumbKey, fin.thumbKey, "image/jpeg");
+      thumbKey = fin.thumbKey;
+    }
+    await drop();
+    return this.savePhoto(ctx, eventId, photoId, { key: fin.key, thumbKey, contentType: type, bytes: head.bytes }, caption);
+  }
+
+  /** Imports an image the server downloads itself (public https URLs only). */
+  async addPhotoFromUrl(ctx: Ctx, eventId: string, url: string, caption?: string): Promise<PhotoView> {
+    await this.checkRoom(ctx, eventId);
+    if (!this.d.fetchImage) throw new AppError("invalid", "Importing from a URL is not available on this server.");
+    let got;
+    try { got = await this.d.fetchImage(url, { maxBytes: MAX_PHOTO_BYTES }); }
+    catch (e) { throw new AppError("invalid", `Could not download that image: ${(e as Error).message}`); }
+    return this.storeBytes(ctx, eventId, got.data, caption);
+  }
+
+  /** Small images sent inline (base64), for tools that have the picture but no way to upload a file. */
+  async addPhotoBase64(ctx: Ctx, eventId: string, data: string, caption?: string): Promise<PhotoView> {
+    await this.checkRoom(ctx, eventId);
+    const bytes = new Uint8Array(Buffer.from(data.replace(/^data:[^,]*,/, ""), "base64"));
+    if (bytes.length > MAX_INLINE_BYTES) throw new AppError("invalid", `Inline images can be at most ${MAX_INLINE_BYTES / 1024 / 1024} MB; use add_photo_from_url for larger ones.`);
+    return this.storeBytes(ctx, eventId, bytes, caption);
+  }
+
+  private async storeBytes(ctx: Ctx, eventId: string, data: Uint8Array, caption?: string): Promise<PhotoView> {
+    const type = sniffImage(data);
+    if (!type || data.length > MAX_PHOTO_BYTES) throw new AppError("invalid", "That is not a JPEG, PNG or WebP photo within the size limit.");
+    const id = randomUUID();
+    const { key } = this.photoKeys(ctx, eventId, id);
+    await this.store.put(key, data, type);
+    return this.savePhoto(ctx, eventId, id, { key, contentType: type, bytes: data.length }, caption);
+  }
+
+  private async savePhoto(ctx: Ctx, eventId: string, id: string, f: { key: string; thumbKey?: string; contentType: PhotoType; bytes: number }, caption?: string): Promise<PhotoView> {
+    const photo: Photo = { id, eventId, ...f, caption: this.cleanCaption(caption), sharedWith: [], createdAt: this.now() };
+    await this.repo.putPhoto(ctx.userId, photo);
+    return this.photoView(ctx, photo, true);
+  }
+
+  private async photoView(ctx: Ctx, p: Photo, mine: boolean): Promise<PhotoView> {
+    const url = await this.store.presignGet(p.key, 3600);
+    const { key: _k, thumbKey, publicToken, ...rest } = p;
+    const base = ctx.baseUrl ?? this.d.appUrl ?? "";
+    return {
+      ...rest,
+      sharedWith: mine ? p.sharedWith : [],
+      url, thumbUrl: thumbKey ? await this.store.presignGet(thumbKey, 3600) : url, mine,
+      ...(mine && publicToken ? { publicUrl: `${base}/api/public/photos/${publicToken}` } : {}),
+    };
+  }
+
+  /** My photos of a show; or, with `ownerId`, the ones that person shared with my email. */
+  async listPhotos(ctx: Ctx, eventId: string, ownerId?: string): Promise<PhotoView[]> {
+    if (!ownerId || ownerId === ctx.userId) {
+      await this.mustEvent(ctx, eventId);
+      const mine = (await this.repo.listPhotos(ctx.userId, eventId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return Promise.all(mine.map((p) => this.photoView(ctx, p, true)));
+    }
+    const email = (await this.ensureUser(ctx)).email?.toLowerCase();
+    if (!email) return [];
+    const shared = (await this.repo.listPhotos(ownerId, eventId)).filter((p) => p.sharedWith.includes(email)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return Promise.all(shared.map((p) => this.photoView(ctx, p, false)));
+  }
+
+  private async myPhotos(ctx: Ctx, eventId: string, ids?: string[]) {
+    await this.mustEvent(ctx, eventId);
+    const all = await this.repo.listPhotos(ctx.userId, eventId);
+    if (!ids) return all;
+    const found = ids.map((id) => all.find((p) => p.id === id));
+    if (found.some((p) => !p)) throw new AppError("not_found", "Photo not found on this show");
+    return found as Photo[];
+  }
+
+  async updatePhoto(ctx: Ctx, eventId: string, photoId: string, caption: string | null) {
+    const [p] = await this.myPhotos(ctx, eventId, [photoId]);
+    const next = { ...p!, caption: this.cleanCaption(caption) };
+    await this.repo.putPhoto(ctx.userId, next);
+    return this.photoView(ctx, next, true);
+  }
+
+  async deletePhoto(ctx: Ctx, eventId: string, photoId: string) {
+    const [p] = await this.myPhotos(ctx, eventId, [photoId]);
+    await this.removePhoto(ctx, p!);
+    return { deleted: photoId };
+  }
+  private async removePhoto(ctx: Ctx, p: Photo) {
+    await this.repo.deletePhoto(ctx.userId, p.eventId, p.id);
+    if (!this.d.photos) return;
+    await this.d.photos.delete(p.key);
+    if (p.thumbKey) await this.d.photos.delete(p.thumbKey);
+  }
+
+  /** Share photos (all of the show's, or the listed ones) with specific people. They see them under "Shared with me". */
+  async sharePhotos(ctx: Ctx, eventId: string, emails: string[], photoIds?: string[]) {
+    await this.ensureUser(ctx);
+    const me = ctx.email?.toLowerCase();
+    const add = emails.map((e) => e.trim().toLowerCase()).filter((e) => e && e !== me);
+    return this.changePhotos(ctx, eventId, photoIds, (p) => ({ ...p, sharedWith: [...new Set([...p.sharedWith, ...add])] }));
+  }
+  async unsharePhotos(ctx: Ctx, eventId: string, emails: string[], photoIds?: string[]) {
+    const drop = new Set(emails.map((e) => e.trim().toLowerCase()));
+    return this.changePhotos(ctx, eventId, photoIds, (p) => ({ ...p, sharedWith: p.sharedWith.filter((e) => !drop.has(e)) }));
+  }
+  /** Turn the public link on (anyone with the link can see the photo) or off (the old link stops working). */
+  async setPhotosPublic(ctx: Ctx, eventId: string, enabled: boolean, photoIds?: string[]) {
+    return this.changePhotos(ctx, eventId, photoIds, (p) => ({ ...p, publicToken: enabled ? p.publicToken ?? randomBytes(24).toString("base64url") : undefined }));
+  }
+  private async changePhotos(ctx: Ctx, eventId: string, ids: string[] | undefined, fn: (p: Photo) => Photo) {
+    const out: PhotoView[] = [];
+    for (const p of await this.myPhotos(ctx, eventId, ids)) {
+      const next = fn(p);
+      await this.repo.putPhoto(ctx.userId, next);
+      out.push(await this.photoView(ctx, next, true));
+    }
+    return out;
+  }
+
+  /** Short-lived storage URL behind a public link, or undefined when the link is unknown or revoked. */
+  async publicPhotoUrl(token: string): Promise<string | undefined> {
+    const ref = await this.repo.findPublicPhoto(token);
+    const p = ref && (await this.repo.getPhoto(ref.ownerId, ref.eventId, ref.photoId));
+    if (!p || p.publicToken !== token) return undefined;
+    return this.store.presignGet(p.key, 300);
   }
 
   // ------------------------------------------------------------------ stats

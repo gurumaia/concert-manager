@@ -33,3 +33,14 @@ describe("EventCard photo counter", () => {
     }
   });
 });
+
+describe("EventCard score badge", () => {
+  it("shows the best score of the show's acts, falling back to the overall score", () => {
+    const { rerender } = render(<ul><EventCard event={ev({ topScore: 9.5 })} onOpen={() => {}} /></ul>);
+    expect(screen.getByText(/Attended · ★ 9\.5/)).toBeTruthy();
+    rerender(<ul><EventCard event={ev({ topScore: undefined })} onOpen={() => {}} /></ul>);
+    expect(screen.queryByText(/★/)).toBeNull();
+    rerender(<ul><EventCard event={ev({ topScore: 0 })} onOpen={() => {}} /></ul>);
+    expect(screen.getByText(/★ 0/)).toBeTruthy(); // 0 is a real score
+  });
+});

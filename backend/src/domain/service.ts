@@ -44,7 +44,8 @@ export type SetlistActResult = { act: string; status: "found" | "not_found" | "k
  * `past`: the show's date is over where it happens. `attended`: you were going and it is past, so you went. There is no stored
  * "attended" any more; a past show you did not go to has to be marked skipped.
  */
-export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean; /** Photos you can see on this show (yours, or the ones shared with you). */ photoCount: number };
+export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean; /** Photos you can see on this show (yours, or the ones shared with you). */ photoCount: number;
+  /** The best score of the show's acts (or the overall score when no act has one); what lists show. Only for shows you attended. */ topScore?: number };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
 type VenueResolution = { id?: string; pending?: VenueInput; note?: VenueNote };
@@ -77,6 +78,13 @@ export type ServiceDeps = {
   fetchImage?: ImageFetcher;
   buildGoogleAuthUrl?: (state: string, baseUrl: string) => string;
   now?: () => Date;
+};
+
+/** The best act score, falling back to the overall score (shows with one act, or scored before acts could be). */
+export const topScoreOf = (r: Rsvp | null): number | undefined => {
+  if (!r) return undefined;
+  const acts = Object.values(r.actScores ?? {});
+  return acts.length ? Math.max(...acts) : r.score;
 };
 
 const norm = (s: string) =>
@@ -497,7 +505,7 @@ export class Service {
     const r = rsvp && rsvp.status === "attended" ? { ...rsvp, status: "going" as const } : rsvp;
     const past = e.date < today(venue ?? undefined);
     // The venue shows the name it had on the day of the show; `currentName` and `names` cover the rest of its history.
-    return { ...e, venue: venue ? { ...venue, name: nameAt(venue, e.date), currentName: nameAt(venue, today(venue)), names: venueNames(venue) } : null, rsvp: r, past, attended: past && r?.status === "going", photoCount };
+    return { ...e, venue: venue ? { ...venue, name: nameAt(venue, e.date), currentName: nameAt(venue, today(venue)), names: venueNames(venue) } : null, rsvp: r, past, attended: past && r?.status === "going", photoCount, topScore: topScoreOf(r) };
   }
 
   /** Save (or, with no songs, remove) the setlist one act played. Manual setlists are never replaced by lookups. */
@@ -777,7 +785,7 @@ export class Service {
       const owner = await this.repo.getUser(ownerId);
       const view = await this.view({ userId: ownerId }, e);
       view.photoCount = (await this.repo.listPhotos(ownerId, eventId)).filter((p) => p.sharedWith.includes(email.toLowerCase())).length; // never the owner's total
-      out.push({ ...(withRsvp.has(`${ownerId}#${eventId}`) ? view : { ...view, rsvp: null, attended: false }), sharedBy: { id: ownerId, name: owner?.name, email: owner?.email } });
+      out.push({ ...(withRsvp.has(`${ownerId}#${eventId}`) ? view : { ...view, rsvp: null, attended: false, topScore: undefined }), sharedBy: { id: ownerId, name: owner?.name, email: owner?.email } });
     }
     return out.sort((a, b) => a.date.localeCompare(b.date));
   }

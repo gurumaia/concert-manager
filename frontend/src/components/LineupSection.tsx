@@ -8,7 +8,7 @@ const ROLE: Record<string, string> = { headliner: "Headliner", support: "Support
 const initial = (name: string) => [...name.trim()][0]?.toUpperCase() ?? "?";
 
 /**
- * The bill, one row per act (initial, role, set time), and for a show you attended a score per act plus one for the whole night.
+ * The bill, one row per act (initial, role, set time), and for a show you attended a score per act (lists show the best one).
  * Scores save as you move them. With a single act (or none) there is just the one score, "How was it?".
  */
 export function LineupSection({ event, readOnly, onSaved }: { event: EventView; readOnly?: boolean; onSaved?: () => void }) {
@@ -41,10 +41,10 @@ export function LineupSection({ event, readOnly, onSaved }: { event: EventView; 
           })}
         </ul>
       )}
-      {canScore && (
-        <div className={`lineup-total${several ? "" : " alone"}`}>
-          <b id="overall-h">{several ? "Whole night" : "How was it?"}</b>
-          <ScoreControl compact={several} name={several ? "Whole night" : undefined} value={sc.score} onChange={sc.setScore} />
+      {canScore && !several && (
+        <div className="lineup-total alone">
+          <b id="overall-h">How was it?</b>
+          <ScoreControl value={sc.score} onChange={sc.setScore} />
         </div>
       )}
       {canScore && <SaveNote state={sc.state} error={sc.error} onRetry={sc.retry} hasScore={sc.score !== null || Object.keys(sc.acts).length > 0} />}

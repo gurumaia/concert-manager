@@ -207,7 +207,7 @@ export function createApp(d: AppDeps) {
     };
 
   app.use("/mcp", auth("mcp"));
-  app.all("/mcp", (c) => {
+  app.all("/mcp", async (c) => {
     if (c.req.method !== "POST") return c.json({ error: "method_not_allowed" }, 405, { allow: "POST" });
     return handleMcpRequest(d.svc, c.get("ctx"), c.req.raw, { triageHtml: d.triageHtml });
   });

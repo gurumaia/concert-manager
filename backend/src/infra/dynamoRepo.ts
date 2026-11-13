@@ -10,6 +10,7 @@ import {
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { OAuthState, Repo } from "../domain/repo.js";
 import type { Photo, PhotoRef } from "../domain/photos.js";
+import type { ReviewLink } from "../domain/review.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 /**
@@ -22,6 +23,7 @@ import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
  *   U#<user>  PH#<eventId>#<id>  photo (metadata; the image lives in object storage)
  *   U#<user>  PHS#<id>#<email>   photo share index entry (gsi1pk PSHARE#<email>)
  *   U#<user>  PHP#<id>           photo public-link index entry (gsi1pk PUB#<token>)
+ *   U#<user>  RV#<token>         shared year-in-review link (gsi1pk REV#<token>)
  *   OAUTH#<state>  STATE         pending Google OAuth handshake (ttl)
  */
 export class DynamoRepo implements Repo {
@@ -208,6 +210,14 @@ export class DynamoRepo implements Repo {
   }
   listPhotosSharedWith(email: string) { return this.queryRefs(`PSHARE#${email.toLowerCase()}`); }
   async findPublicPhoto(token: string) { return (await this.queryRefs(`PUB#${token}`))[0]; }
+
+  async putReview(u: string, link: ReviewLink) { await this.putItem(this.pk(u), `RV#${link.token}`, link, { gsi1pk: `REV#${link.token}`, gsi1sk: "R" }); }
+  listReviews(u: string) { return this.listPrefix<ReviewLink>(this.pk(u), "RV#"); }
+  deleteReview(u: string, token: string) { return this.delItem(this.pk(u), `RV#${token}`); }
+  async findReview(token: string) {
+    const r = await this.doc.send(new QueryCommand({ TableName: this.table, IndexName: "gsi1", KeyConditionExpression: "gsi1pk = :p", ExpressionAttributeValues: { ":p": `REV#${token}` } }));
+    return r.Items?.[0]?.data as ReviewLink | undefined;
+  }
 
   async putTemp(key: string, value: unknown, expiresAt: number) {
     await this.putItem(`TMP#${key}`, "V", { value, expiresAt }, { ttl: Math.floor(expiresAt / 1000) + 3600 });

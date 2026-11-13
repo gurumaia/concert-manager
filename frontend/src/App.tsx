@@ -8,6 +8,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { useRoute } from "./router";
 import { EventsPage } from "./pages/EventsPage";
 import { HistoryPage } from "./pages/HistoryPage";
+import { PublicReviewPage } from "./pages/PublicReviewPage";
+import { ReviewPage } from "./pages/ReviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SharedPage } from "./pages/SharedPage";
 import { VenuesPage } from "./pages/VenuesPage";
@@ -16,6 +18,7 @@ import type { EventView, VenueRow } from "./types";
 const NAV = [
   { path: "/", label: "Shows" },
   { path: "/history", label: "History" },
+  { path: "/review", label: "Year in review" },
   { path: "/shared", label: "Shared with me" },
   { path: "/venues", label: "Venues" },
   { path: "/settings", label: "Settings" },
@@ -62,6 +65,8 @@ export function App() {
     completeGoogleLogin(code).then(signedIn).catch((e) => setAuthError(e.message));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A shared year in review is public: it needs neither sign-in nor the app config.
+  if (path.startsWith("/r/")) return <PublicReviewPage token={path.slice(3).split(/[?#]/)[0]!} />;
   if (!cfg) return <Centered>{authError ? <p role="alert" className="error">{authError}</p> : <p className="muted">Loading…</p>}</Centered>;
   if (path.startsWith("/auth/callback")) {
     return <Centered>{authError ? <><p role="alert" className="error">{authError}</p><a className="btn primary" href="/login">Back to sign in</a></> : <p>Signing you in…</p>}</Centered>;
@@ -122,6 +127,7 @@ function Shell({ path, go, cfg }: { path: string; go: (to: string) => void; cfg:
       <main id="main">
         {route === "/" && <EventsPage events={events} venues={venues} reload={reload} error={error} loading={loading} />}
         {route === "/history" && <HistoryPage venues={venues} reload={reload} />}
+        {route === "/review" && <ReviewPage />}
         {route === "/shared" && <SharedPage />}
         {route === "/venues" && <VenuesPage venues={venues} reload={reload} />}
         {route === "/settings" && <SettingsPage me={me} />}

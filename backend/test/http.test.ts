@@ -22,6 +22,23 @@ async function appFor(fetchFn?: typeof fetch) {
 const post = (app: Awaited<ReturnType<typeof appFor>>["app"], path: string, body: unknown, user = "u1") =>
   app.request(path, { method: "POST", headers: { "content-type": "application/json", "x-dev-user": user }, body: JSON.stringify(body) });
 
+describe("public year in review", () => {
+  it("opens without sign-in, is never cached, and 404s for unknown or revoked links", async () => {
+    const { app } = await appFor();
+    const made = await (await post(app, "/api/ops/create_event", { title: "Old show", date: "2020-05-05" })).json();
+    await post(app, "/api/ops/set_rsvp", { eventId: made.result.event.id, status: "going" });
+    const link = (await (await post(app, "/api/ops/create_review_link", { from: "2020-01-01", to: "2020-12-31" })).json()).result;
+    const open = await app.request(`/api/public/review/${link.token}`);
+    expect(open.status).toBe(200);
+    expect(open.headers.get("cache-control")).toBe("no-store");
+    expect((await open.json()).result.shows.map((x: { title: string }) => x.title)).toEqual(["Old show"]);
+    expect((await app.request("/api/public/review/nope")).status).toBe(404);
+    expect((await post(app, "/api/ops/revoke_review_link", { token: link.token }, "u2")).status).toBe(404);
+    await post(app, "/api/ops/revoke_review_link", { token: link.token });
+    expect((await app.request(`/api/public/review/${link.token}`)).status).toBe(404);
+  });
+});
+
 describe("REST ops", () => {
   it("requires auth", async () => {
     const { app } = await appFor();
@@ -201,6 +218,7 @@ describe("MCP over HTTP", () => {
     for (const n of ["retire_venue", "unretire_venue", "bulk_create_events", "create_event", "set_rsvp", "list_events", "calendar_connect", "calendar_select", "update_event", "delete_event", "share_rsvp", "get_stats", "merge_venues"]) {
       expect(names).toContain(n);
     }
+    expect(names.filter((n) => /review/.test(n))).toEqual([]); // year in review is web-only
     expect(tools.find((t) => t.name === "delete_event")?.annotations?.destructiveHint).toBe(true);
     expect(tools.find((t) => t.name === "list_events")?.annotations?.readOnlyHint).toBe(true);
 

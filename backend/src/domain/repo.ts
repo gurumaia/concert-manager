@@ -1,4 +1,5 @@
 import type { Photo, PhotoRef } from "./photos.js";
+import type { ReviewLink } from "./review.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "./schemas.js";
 
 /** A pending Google OAuth handshake, keyed by the random `state` value. */
@@ -41,6 +42,12 @@ export interface Repo {
   /** Photos other users shared with this email. */
   listPhotosSharedWith(email: string): Promise<PhotoRef[]>;
   findPublicPhoto(token: string): Promise<PhotoRef | undefined>;
+
+  /** Shared year-in-review links. `findReview` resolves a link by its token without knowing the owner. */
+  putReview(userId: string, link: ReviewLink): Promise<void>;
+  listReviews(userId: string): Promise<ReviewLink[]>;
+  deleteReview(userId: string, token: string): Promise<void>;
+  findReview(token: string): Promise<ReviewLink | undefined>;
 
   /** Short-lived records (OAuth registrations, authorize requests, codes). Callers must check expiry: DynamoDB TTL is lazy. */
   putTemp(key: string, value: unknown, expiresAt: number): Promise<void>;

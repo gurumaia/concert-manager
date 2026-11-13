@@ -12,6 +12,7 @@ import {
   type ImageFetcher, type Photo, type PhotoStore, type PhotoType, type PhotoView,
 } from "./photos.js";
 import type { Repo } from "./repo.js";
+import { personKey, type ReviewData, type ReviewLink, type ReviewRecipe, type ReviewShow } from "./review.js";
 import type { SetlistGateway } from "./setlist.js";
 import type {
   EventInput,
@@ -117,6 +118,9 @@ const sameName = (v: Venue, n: string) => venueNames(v).some((x) => norm(x.name)
 
 /** Stands in for the id of a venue that is about to be created. */
 const NEW_VENUE = "\u0000new-venue";
+
+const REVIEW_PHOTOS_PER_SHOW = 12;
+const REVIEW_MAX_PHOTOS = 200;
 
 export class Service {
   private repo: Repo;
@@ -960,6 +964,80 @@ export class Service {
     const p = ref && (await this.repo.getPhoto(ref.ownerId, ref.eventId, ref.photoId));
     if (!p || p.publicToken !== token) return undefined;
     return this.store.presignGet(p.key, 300);
+  }
+
+  // ----------------------------------------------------------- year in review
+  /** Attended shows in the range (optionally only with certain people), with their photos; what the review screens are built from. */
+  private async buildReview(ownerId: string, recipe: ReviewRecipe, showNames: boolean): Promise<ReviewData> {
+    if (recipe.from > recipe.to) throw new AppError("invalid", "The start date is after the end date");
+    const owner: Ctx = { userId: ownerId };
+    const { events } = await this.listEvents(owner, { from: recipe.from, to: recipe.to, rsvp: "attended", limit: 100000, sort: "asc" });
+    const wanted = [...new Set((recipe.people ?? []).map(personKey).filter(Boolean))];
+    const withPeople = events.filter((e) => {
+      if (!wanted.length) return true;
+      const here = new Set((e.rsvp?.companions ?? []).map(personKey));
+      return recipe.match === "all" ? wanted.every((k) => here.has(k)) : wanted.some((k) => here.has(k));
+    });
+    const photosByEvent = new Map<string, Photo[]>();
+    if (this.d.photos) {
+      const ids = new Set(withPeople.map((e) => e.id));
+      for (const p of (await this.repo.listAllPhotos(ownerId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+        if (ids.has(p.eventId)) photosByEvent.set(p.eventId, [...(photosByEvent.get(p.eventId) ?? []), p]);
+      }
+    }
+    let budget = REVIEW_MAX_PHOTOS;
+    const shows: ReviewShow[] = [];
+    for (const e of withPeople) {
+      const picked = (photosByEvent.get(e.id) ?? []).slice(0, Math.min(REVIEW_PHOTOS_PER_SHOW, budget));
+      budget -= picked.length;
+      const photos = await Promise.all(picked.map(async (p) => {
+        const url = await this.store.presignGet(p.key, 3600);
+        return { id: p.id, url, thumbUrl: p.thumbKey ? await this.store.presignGet(p.thumbKey, 3600) : url, ...(p.caption ? { caption: p.caption } : {}) };
+      }));
+      const companions = [...new Map((e.rsvp?.companions ?? []).map((c) => c.trim()).filter(Boolean).map((c) => [personKey(c), c])).values()];
+      shows.push({
+        date: e.date, title: e.title, ...(e.genre ? { genre: e.genre } : {}),
+        ...(e.venue ? { venue: { name: nameAt(e.venue, e.date), ...(e.venue.city ? { city: e.venue.city } : {}) } } : {}),
+        lineup: (e.lineup ?? []).map((a) => ({ name: a.name, ...(a.role ? { role: a.role } : {}) })),
+        ...(e.topScore !== undefined ? { score: e.topScore } : {}),
+        companions: showNames ? companions : [], companionCount: companions.length,
+        songs: (e.setlists ?? []).flatMap((l) => l.songs.filter((x) => !x.tape).map((x) => x.name)).slice(0, 80),
+        photos,
+      });
+    }
+    const name = (await this.repo.getUser(ownerId))?.name?.trim().split(/\s+/)[0];
+    return { recipe: { from: recipe.from, to: recipe.to, ...(wanted.length ? { people: recipe.people, match: recipe.match ?? "any" } : {}) }, ...(name ? { owner: name } : {}), shows };
+  }
+
+  /** The review for the signed-in user, with companion names. */
+  async yearReview(ctx: Ctx, recipe: ReviewRecipe): Promise<ReviewData> { return this.buildReview(ctx.userId, recipe, true); }
+
+  /** Make a link anyone can open (no sign-in). It stores only the recipe, so it always shows the current state of your shows and photos. */
+  async createReviewLink(ctx: Ctx, recipe: ReviewRecipe, showNames: boolean) {
+    if (recipe.from > recipe.to) throw new AppError("invalid", "The start date is after the end date");
+    const link: ReviewLink = {
+      token: randomBytes(24).toString("base64url"), ownerId: ctx.userId, showNames, createdAt: this.now(),
+      recipe: { from: recipe.from, to: recipe.to, ...(recipe.people?.length ? { people: recipe.people, match: recipe.match ?? "any" } : {}) },
+    };
+    await this.repo.putReview(ctx.userId, link);
+    return this.linkView(ctx, link);
+  }
+  private linkView(ctx: Ctx, l: ReviewLink) {
+    return { token: l.token, url: `${ctx.baseUrl ?? this.d.appUrl ?? ""}/r/${l.token}`, recipe: l.recipe, showNames: l.showNames, createdAt: l.createdAt };
+  }
+  async listReviewLinks(ctx: Ctx) {
+    return (await this.repo.listReviews(ctx.userId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((l) => this.linkView(ctx, l));
+  }
+  async revokeReviewLink(ctx: Ctx, token: string) {
+    const l = await this.repo.findReview(token);
+    if (!l || l.ownerId !== ctx.userId) throw new AppError("not_found", "Link not found");
+    await this.repo.deleteReview(ctx.userId, token);
+    return { revoked: token };
+  }
+  /** What the public page shows for a link, or undefined when it is unknown or revoked. */
+  async publicReview(token: string): Promise<ReviewData | undefined> {
+    const l = await this.repo.findReview(token);
+    return l ? this.buildReview(l.ownerId, l.recipe, l.showNames) : undefined;
   }
 
   // ------------------------------------------------------------------ stats

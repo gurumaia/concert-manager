@@ -170,14 +170,45 @@ describe("playlists", () => {
     expect(pickRecent(list, "Marty Friedman", 1)).toHaveLength(1);
   });
 
-  it("gateway asks for the artist without a date and treats 404 as nothing", async () => {
+  it("gateway resolves the exact artist first, then reads that artist's setlists (not a fuzzy name search)", async () => {
     const seen: string[] = [];
-    const responses = [new Response(JSON.stringify({ setlist: [{ artist: { name: "X" }, eventDate: "01-10-2026", sets: { set: [{ song: [{ name: "A" }] }] } }] })), new Response("{}", { status: 404 })];
+    const sl = { artist: { name: "The Damned" }, eventDate: "01-10-2026", sets: { set: [{ song: [{ name: "A" }] }] } };
+    const responses = [
+      new Response(JSON.stringify({ artist: [{ mbid: "wrong", name: "Justice for the Damned" }, { mbid: "m1", name: "The Damned" }] })),
+      new Response(JSON.stringify({ setlist: [sl, { ...sl, artist: { name: "Justice for the Damned" } }] })),
+      new Response("{}", { status: 404 }),
+    ];
     const fetchFn = (async (url: string) => { seen.push(url); return responses.shift()!; }) as unknown as typeof fetch;
     const gw = new SetlistFmGateway("k", fetchFn, async () => {});
-    expect(await gw.recent({ artist: "X", limit: 5 })).toHaveLength(1);
-    expect(new URL(seen[0]!).searchParams.has("date")).toBe(false);
-    expect(await gw.recent({ artist: "Y", limit: 5 })).toEqual([]);
+    const r = await gw.recent({ artist: "The Damned", limit: 5 });
+    expect(r.map((x) => x.artist)).toEqual(["The Damned"]);
+    expect(new URL(seen[1]!).pathname).toBe("/rest/1.0/artist/m1/setlists");
+    expect(await gw.recent({ artist: "Nobody", limit: 5 })).toEqual([]);
+  });
+
+  it("gateway returns nothing when no artist has exactly that name", async () => {
+    const fetchFn = (async () => new Response(JSON.stringify({ artist: [{ mbid: "x", name: "Justice for the Damned" }] }))) as unknown as typeof fetch;
+    expect(await new SetlistFmGateway("k", fetchFn, async () => {}).recent({ artist: "The Damned", limit: 5 })).toEqual([]);
+  });
+
+  it("matches names exactly: ignores case, accents and a leading The, never a part of a longer name", () => {
+    const r = (artist: string, eventDate: string) => ({ artist: { name: artist }, eventDate, sets: { set: [{ song: [{ name: "A" }] }] } });
+    const list = [r("Justice for the Damned", "13-11-2026"), r("Damned", "01-10-2026"), r("The Damned", "02-10-2026")];
+    expect(pickRecent(list, "The Damned", 5).map((x) => x.date)).toEqual(["2026-10-02", "2026-10-01"]);
+    expect(pickSetlist([r("Justice for the Damned", "13-11-2026") as never], "The Damned")).toBeUndefined();
+  });
+
+  it("retries a 429 after Retry-After, then succeeds; gives up after a few tries", async () => {
+    const waits: number[] = [];
+    const ok = () => new Response(JSON.stringify({ setlist: [] }));
+    const seq = [new Response("", { status: 429, headers: { "retry-after": "2" } }), new Response("", { status: 429 }), ok()];
+    const gw = new SetlistFmGateway("k", (async () => seq.shift()!) as unknown as typeof fetch, async (ms) => { waits.push(ms); });
+    expect(await gw.find({ artist: "X", date: "2026-11-11" })).toBeUndefined();
+    expect(waits.filter((w) => w >= 1500)).toEqual([2000, 2000]); // Retry-After 2 s, then no header: 1 s * 2 = 2 s
+    let calls = 0;
+    const always = new SetlistFmGateway("k", (async () => { calls++; return new Response("", { status: 429 }); }) as unknown as typeof fetch, async () => {});
+    await expect(always.find({ artist: "X", date: "2026-11-11" })).rejects.toThrow(/429/);
+    expect(calls).toBe(4);
   });
 });
 
@@ -202,7 +233,7 @@ describe("setlist.fm gateway", () => {
 
   it("calls the API with the key and a dd-MM-yyyy date, and treats 404 as no setlist", async () => {
     const seen: Array<{ url: string; key: string }> = [];
-    const responses = [new Response(JSON.stringify({ setlist: [raw("Marty Friedman", "São Paulo", ["Y"])] })), new Response("{}", { status: 404 }), new Response("", { status: 429 })];
+    const responses = [new Response(JSON.stringify({ setlist: [raw("Marty Friedman", "São Paulo", ["Y"])] })), new Response("{}", { status: 404 }), ...Array.from({ length: 4 }, () => new Response("", { status: 429 }))];
     const fetchFn = (async (url: string, init: RequestInit) => {
       seen.push({ url, key: (init.headers as Record<string, string>)["x-api-key"]! });
       return responses.shift()!;

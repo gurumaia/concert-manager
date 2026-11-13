@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { PHOTO_MS, buildDeck, slideDuration, type Count, type Pic, type Slide } from "../review";
+import { preload } from "../preload";
+import { PHOTO_MS, buildDeck, slideDuration, slideImages, type Count, type Pic, type Slide } from "../review";
 import type { ReviewData } from "../types";
 
 const TICK_MS = 100;
@@ -42,6 +43,14 @@ export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClos
   }, [paused, slide, index, last, go, setClock]);
 
   useEffect(() => { root.current?.focus(); }, []);
+
+  // Load ahead: the next two photos of the slideshow that is playing, and the first three photos of each of the next two slides.
+  const here = slide && (slide.kind === "best" || slide.kind === "gallery") && slide.pics.length > 1 ? Math.min(slide.pics.length - 1, Math.floor(elapsed / PHOTO_MS)) : 0;
+  useEffect(() => {
+    if (!slide) return;
+    if (slide.kind === "best" || slide.kind === "gallery") preload(slideImages(slide).slice(here + 1, here + 3));
+    for (const next of slides.slice(index + 1, index + 3)) preload(slideImages(next).slice(0, 3));
+  }, [slides, slide, index, here]);
 
   if (!slide) return <p className="muted">Nothing to show yet.</p>;
   const pics = slide.kind === "best" || slide.kind === "gallery" ? slide.pics : [];
@@ -225,7 +234,7 @@ function Polaroid({ pic, src, rot, small }: { pic: Pic; src: string; rot: number
   return (
     <figure className={`rv-pol${small ? " small" : ""}`} style={{ "--rot": `${rot}deg` } as CSSProperties}>
       <span className="rv-tape" aria-hidden="true" />
-      {broken ? <div className="rv-pic-missing" /> : <img src={src} alt={pic.caption ?? pic.label} loading="lazy" draggable={false} onError={() => setBroken(true)} />}
+      {broken ? <div className="rv-pic-missing" /> : <img src={src} alt={pic.caption ?? pic.label} decoding="async" draggable={false} onError={() => setBroken(true)} />}
       <figcaption className="rv-hand">{pic.caption ?? pic.label}</figcaption>
     </figure>
   );

@@ -167,3 +167,16 @@ export const PHOTO_MS = 3000;
 export function slideDuration(s: Slide): number {
   return (s.kind === "best" || s.kind === "gallery") && s.pics.length > 1 ? s.pics.length * PHOTO_MS : SLIDE_MS;
 }
+
+/**
+ * The pictures a slide shows, in the order they appear, as the URLs the story will request.
+ * Small polaroids and the collage show the small preview; the slideshows show the full photo.
+ */
+export function slideImages(s: Slide): string[] {
+  switch (s.kind) {
+    case "collage": return s.pics.map((p) => p.thumbUrl);
+    case "artists": case "venue": return s.pic ? [s.pic.thumbUrl] : [];
+    case "best": case "gallery": return s.pics.map((p) => p.url);
+    default: return [];
+  }
+}

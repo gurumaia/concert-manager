@@ -12,8 +12,11 @@ const DATA: ReviewData = {
   shows: [show("Slayer", "2026-03-05", { score: 9, photos: [photo("a"), photo("b")] }), show("Maiden", "2026-09-14", { score: 7 })],
 };
 const TODAY = "2026-12-31";
+// Records the pictures the story asks the browser to fetch ahead of time (new Image().src = ...).
+const requested: string[] = [];
+class FakeImage { decoding = ""; set src(v: string) { requested.push(v); } decode() { return Promise.resolve(); } }
 
-beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("matchMedia", () => ({ matches: false })); });
+beforeEach(() => { requested.length = 0; vi.stubGlobal("Image", FakeImage); vi.useFakeTimers(); vi.stubGlobal("matchMedia", () => ({ matches: false })); });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const heading = () => screen.getAllByRole("heading", { level: 2 })[0]!.textContent;
@@ -62,6 +65,19 @@ describe("ReviewStory", () => {
     fireEvent.click(screen.getByLabelText("Next photo"));
     expect(screen.getByAltText(/2 \/ 2/)).toBeTruthy();
     expect((screen.getByLabelText("Next photo") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("loads photos ahead of time: the next slide's, and the next photos of a slideshow", () => {
+    // the Image stub is per file, and the module keeps what it already asked for, so use fresh URLs
+    const d: ReviewData = { ...DATA, shows: [show("Slayer", "2026-03-05", { score: 9, photos: [photo("p1"), photo("p2"), photo("p3")] }), show("Maiden", "2026-09-14", { score: 7 })] };
+    render(<ReviewStory data={d} today={TODAY} />);
+    // on the intro: the collage after it (previews) and the slideshow after that (full photos) are already on their way
+    expect(requested).toEqual(["/p1-t.jpg", "/p2-t.jpg", "/p3-t.jpg", "/p1.jpg", "/p2.jpg", "/p3.jpg"]);
+    const before = requested.length;
+    fireEvent.click(screen.getByLabelText("Next slide"));
+    fireEvent.click(screen.getByLabelText("Next slide"));
+    tick(3100); // the second photo of the slideshow is showing; everything was requested already, nothing is fetched twice
+    expect(requested).toHaveLength(before);
   });
 
   it("stops on the last slide, and keys and the close button work", () => {

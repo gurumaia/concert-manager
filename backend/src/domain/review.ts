@@ -33,7 +33,8 @@ export type ReviewShow = {
   /** Names of the people you went with. Left out (empty) on a shared link that hides names; see `companionCount`. */
   companions: string[];
   companionCount: number;
-  songs: string[];
+  /** Songs played live, each with the act that played it (a song title alone does not say which band). */
+  songs: Array<{ name: string; act: string }>;
   photos: ReviewPhoto[];
 };
 export type ReviewData = {

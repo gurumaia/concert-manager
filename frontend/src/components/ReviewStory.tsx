@@ -4,6 +4,8 @@ import { PHOTO_MS, buildDeck, slideDuration, slideImages, type Count, type Pic, 
 import type { ReviewData } from "../types";
 
 const TICK_MS = 100;
+/** Holding a finger (or the mouse) this long on the screen pauses the story, like tapping the pause button. */
+const HOLD_MS = 350;
 const TILTS = [-4, 3, -2, 5, -5, 2];
 const tilt = (i: number) => TILTS[i % TILTS.length]!;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -44,6 +46,18 @@ export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClos
 
   useEffect(() => { root.current?.focus(); }, []);
 
+  // Hold to pause: it stays paused until play is pressed (same as the button). The tap that ends a hold must not also change slide.
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const held = useRef(false);
+  const startHold = () => { held.current = false; clearTimeout(holdTimer.current); holdTimer.current = setTimeout(() => { held.current = true; setPaused(true); }, HOLD_MS); };
+  const endHold = () => clearTimeout(holdTimer.current);
+  useEffect(() => endHold, []);
+  const tapProps = (onTap: () => void) => ({
+    onPointerDown: startHold, onPointerUp: endHold, onPointerLeave: endHold, onPointerCancel: endHold,
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(), // a long press on a phone must not open the browser's menu
+    onClick: () => { if (held.current) { held.current = false; return; } onTap(); },
+  });
+
   // Load ahead: the next two photos of the slideshow that is playing, and the first three photos of each of the next two slides.
   const here = slide && (slide.kind === "best" || slide.kind === "gallery") && slide.pics.length > 1 ? Math.min(slide.pics.length - 1, Math.floor(elapsed / PHOTO_MS)) : 0;
   useEffect(() => {
@@ -82,8 +96,8 @@ export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClos
           {onClose && <button className="rv-round" onClick={onClose} aria-label="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
         </span>
       </div>
-      <button className="rv-tap rv-tap-prev" onClick={() => go(index - 1)} aria-label="Previous slide" tabIndex={-1} />
-      <button className="rv-tap rv-tap-next" onClick={() => go(index + 1)} aria-label="Next slide" tabIndex={-1} />
+      <button className="rv-tap rv-tap-prev" {...tapProps(() => go(index - 1))} aria-label="Previous slide" tabIndex={-1} />
+      <button className="rv-tap rv-tap-next" {...tapProps(() => go(index + 1))} aria-label="Next slide" tabIndex={-1} />
       <div className="rv-slide" key={index}>
         <SlideView slide={slide} photoIdx={photoIdx} onPhoto={showPhoto} />
       </div>
@@ -180,6 +194,7 @@ function SlideView({ slide, photoIdx, onPhoto }: { slide: Slide; photoIdx: numbe
         <Page>
           <h2 className="rv-hand rv-lead">You caught this one live</h2>
           <div className="rv-word rv-song">{slide.name}</div>
+          <p className="rv-hand rv-line">by <strong>{slide.act}</strong></p>
           <Note rot={2}><b>{slide.count}</b>different nights</Note>
         </Page>
       );

@@ -36,6 +36,13 @@ function suite(kind: RepoKind) {
       expect(JSON.stringify(r)).not.toMatch(/pricePaid|notes|email/);
     });
 
+    it("each song says which act played it, and songs played from tape are left out", async () => {
+      const s = await withShows();
+      await s.svc.setSetlist(s.me, s.a.id, { act: "Slayer", songs: [{ name: "Raining Blood" }, { name: "Intro", tape: true }] });
+      const r = await s.svc.yearReview(s.me, year);
+      expect(r.shows[0]!.songs).toEqual([{ name: "Raining Blood", act: "Slayer" }]);
+    });
+
     it("filters by people, ignoring case and accents, with any or all", async () => {
       const s = await withShows();
       expect((await s.svc.yearReview(s.me, { ...year, people: ["ANA"] })).shows.map((x) => x.title)).toEqual(["Slayer", "Maiden"]);

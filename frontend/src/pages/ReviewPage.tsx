@@ -178,7 +178,7 @@ export function ReviewPage() {
 
       {playing && data && (
         <div className="rv-overlay" onClick={(e) => { if (e.target === e.currentTarget) setPlaying(false); }}>
-          <ReviewStory data={data} onClose={() => setPlaying(false)} />
+          <ReviewStory data={data} onClose={() => setPlaying(false)} fullscreenOnStart={typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches} />
         </div>
       )}
     </>

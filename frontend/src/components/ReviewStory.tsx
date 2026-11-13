@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import "../reviewFont.css";
 import { preload } from "../preload";
 import { PHOTO_MS, buildDeck, SLIDESHOW_AHEAD, firstScreenImages, slideDuration, slideImages, type Count, type Pic, type Slide } from "../review";
 import type { ReviewData } from "../types";
@@ -11,6 +12,9 @@ const tilt = (i: number) => TILTS[i % TILTS.length]!;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 const isYear = (range: string) => /^\d{4}$/.test(range);
+const PAPER = "#f3eadb";
+// Starts loading the handwriting as soon as the story's code arrives, before the first slide asks for it.
+if (typeof document !== "undefined") void document.fonts?.load?.('1em "Kalam"');
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
@@ -18,7 +22,7 @@ const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(pre
  * Slides advance on their own; pausing is sticky until the play button is pressed. Tap the left third to go back, the rest to go on.
  * The same component shows the owner's preview and the public page.
  */
-export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClose?: () => void; today?: string }) {
+export function ReviewStory({ data, onClose, today, fullscreenOnStart }: { data: ReviewData; onClose?: () => void; today?: string; fullscreenOnStart?: boolean }) {
   const slides = useMemo(() => buildDeck(data, today), [data, today]);
   const [index, setIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -45,6 +49,27 @@ export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClos
   }, [paused, slide, index, last, go, setClock]);
 
   useEffect(() => { root.current?.focus(); }, []);
+
+  // Full screen (not available on iPhone Safari, where the button is simply not shown). It also tints the browser bar like the paper while the story is open.
+  const canFullscreen = typeof document !== "undefined" && !!document.fullscreenEnabled;
+  const [full, setFull] = useState(false);
+  const toggleFull = useCallback(() => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void root.current?.requestFullscreen?.().catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    const on = () => setFull(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  useEffect(() => { if (fullscreenOnStart && canFullscreen) void root.current?.requestFullscreen?.().catch(() => undefined); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); }, []);
+  useEffect(() => {
+    const meta = document.createElement("meta");
+    meta.name = "theme-color"; meta.content = PAPER;
+    document.head.appendChild(meta);
+    return () => { meta.remove(); };
+  }, []);
 
   // Hold to pause: it stays paused until play is pressed (same as the button). The tap that ends a hold must not also change slide.
   const holdTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -93,6 +118,13 @@ export function ReviewStory({ data, onClose, today }: { data: ReviewData; onClos
               ? <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" /></svg>
               : <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><rect x="6" y="4.5" width="4" height="15" rx="1" /><rect x="14" y="4.5" width="4" height="15" rx="1" /></svg>}
           </button>
+          {canFullscreen && (
+            <button className="rv-round" onClick={toggleFull} aria-label={full ? "Exit full screen" : "Full screen"} aria-pressed={full}>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {full ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
+              </svg>
+            </button>
+          )}
           {onClose && <button className="rv-round" onClick={onClose} aria-label="Close"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg></button>}
         </span>
       </div>

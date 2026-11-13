@@ -1,7 +1,8 @@
 import type { ReviewData, ReviewPhoto, ReviewShow } from "./types";
 
 /** A photo in a slide, with a short caption such as "Slayer · Mar". */
-export type Pic = ReviewPhoto & { label: string };
+/** `title` and `month` are what the caption is made of (`label` is both, for places that need one string). */
+export type Pic = ReviewPhoto & { label: string; title?: string; month?: string };
 export type Count = { name: string; count: number };
 
 /** One screen of the story. Every slide is optional except the first and the last: a slide appears only when there is enough to say. */
@@ -56,7 +57,7 @@ export function rangeLabel(from: string, to: string): string {
 }
 
 /** Captions use the show's own name: a festival has several headliners and the photo can be from any of them. A caption the photo already has wins (see Polaroid). */
-const picsOf = (s: ReviewShow): Pic[] => s.photos.map((p) => ({ ...p, label: `${s.title} · ${monthShort(s.date)}` }));
+const picsOf = (s: ReviewShow): Pic[] => s.photos.map((p) => ({ ...p, label: `${s.title} · ${monthShort(s.date)}`, title: s.title, month: monthShort(s.date) }));
 
 /** Up to `n` photos spread evenly through the list (so a deck does not show only the first show's pictures). */
 function spread<T>(all: T[], n: number): T[] {

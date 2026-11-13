@@ -4,7 +4,7 @@ import { EventDrawer } from "../components/EventDrawer";
 import { Icon } from "../components/Icon";
 import { loadAttended } from "../attended";
 import { dateLabel, genreHue } from "../format";
-import { ALONE, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, personHue, summarize, withWho, type Person, type Ranked } from "../history";
+import { ALONE, EMAIL_RE, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, personHue, summarize, withWho, type Person, type Ranked } from "../history";
 import type { EventView, VenueRow } from "../types";
 import { useBlockStrayFileDrops, usePhotoDrop } from "../usePhotoDrop";
 
@@ -36,15 +36,18 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
   const [confirmed, setConfirmed] = useState<string[]>(confirmedIds);
   const [nudgeBusy, setNudgeBusy] = useState(false);
 
+  const [directory, setDirectory] = useState<Array<{ key: string; name: string; email?: string }>>([]);
   const load = useCallback(async () => {
     try { setEvents(await loadAttended()); setError(undefined); } catch (e) { setError((e as Error).message); }
+    // The emails are an extra: the page works without them.
+    try { const d = await op<Array<{ key: string; name: string; email?: string }>>("list_people"); setDirectory(Array.isArray(d) ? d : []); } catch { /* names only */ }
   }, []);
   useEffect(() => { void load(); }, [load]);
 
   const all = events ?? [];
   const sum = useMemo(() => summarize(all), [events]); // eslint-disable-line react-hooks/exhaustive-deps
   const since = useMemo(() => lastYearStart(), []);
-  const people = useMemo(() => peopleOf(all), [events]); // eslint-disable-line react-hooks/exhaustive-deps
+  const people = useMemo(() => peopleOf(all, directory), [events, directory]); // eslint-disable-line react-hooks/exhaustive-deps
   const inRange = (e: EventView) => (year === "12m" ? e.date >= since : !year || e.date.startsWith(String(year)));
   const shown = useMemo(() => all.filter((e) => inRange(e) && withWho(e, who) && matches(e, q)), [events, q, year, who]); // eslint-disable-line react-hooks/exhaustive-deps
   // With a person (or "Alone") chosen: how many shows that is, per year (the chart overlay) and over the last 12 months.
@@ -147,6 +150,7 @@ export function HistoryPage({ venues, reload }: { venues: VenueRow[]; reload: ()
           )}
 
           <PeopleStrip people={people} who={who} onPick={(k) => setWho(who === k ? undefined : k)} all={allPeople} onToggleAll={() => setAllPeople(!allPeople)} total={sum.total} alone={all.filter((e) => withWho(e, ALONE)).length} />
+          {who && who !== ALONE && people.find((p) => p.key === who) && <PersonEmail key={who} person={people.find((p) => p.key === who)!} onSaved={() => { void load(); void reload(); }} />}
           {together && (
             <dl className="hist-stats hist-together" aria-live="polite">
               <div><dd style={hue !== undefined ? { color: `hsl(${hue} 60% 50%)` } : undefined}>{together.total}</dd><dt>{who === ALONE ? "with no one listed" : `with ${whoName}`}</dt></div>
@@ -292,6 +296,38 @@ function Avatars({ people }: { people: Array<{ key: string; name: string }> }) {
   );
 }
 
+/** Link the chosen person to an email once: every show with them, past and upcoming, is shared with it (photos too). */
+function PersonEmail({ person, onSaved }: { person: Person; onSaved: () => void }) {
+  const [email, setEmail] = useState(person.email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+  const [error, setError] = useState<string>();
+  const valid = EMAIL_RE.test(email.trim());
+  async function save(value: string | null) {
+    setBusy(true); setError(undefined); setMsg(undefined);
+    try {
+      const r = await op<{ shows: number }>("set_person_email", { name: person.name, email: value });
+      setMsg(value ? `Saved. ${r.shows} ${r.shows === 1 ? "show" : "shows"} with ${person.name} shared with ${value.trim().toLowerCase()}.` : `${person.name} is no longer linked to an email, and their shows are not shared any more.`);
+      if (!value) setEmail("");
+      onSaved();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return (
+    <form className="card hist-person-email" onSubmit={(e) => { e.preventDefault(); if (valid) void save(email); }} aria-label={`Email for ${person.name}`}>
+      <label>{person.name}’s email
+        <span className="row">
+          <input type="email" placeholder="name@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <button className="btn primary" disabled={busy || !valid || email.trim().toLowerCase() === person.email}>Save</button>
+          {person.email && <button type="button" className="btn" disabled={busy} onClick={() => void save(null)}>Remove email</button>}
+        </span>
+      </label>
+      <p className="muted small">Applies to every show with {person.name}, past and upcoming. They see those shows and their photos under “Shared with me” when they sign in with this email, now or later.</p>
+      {msg && <p role="status" className="ok small">{msg}</p>}
+      {error && <p role="alert" className="error small">{error}</p>}
+    </form>
+  );
+}
+
 const STRIP = 10;
 
 /** Everyone you went with, as filter chips (pick one again to clear). "Alone" is always there. */
@@ -305,8 +341,8 @@ function PeopleStrip({ people, who, onPick, all, onToggleAll, total, alone }: {
       <h2>Went with</h2>
       <div className="hist-chips">
         {visible.map((p) => (
-          <button key={p.key} className={who === p.key ? "on" : ""} style={hueStyle(p.key)} aria-pressed={who === p.key} aria-label={`${p.name}, ${p.count} ${p.count === 1 ? "show" : "shows"}`} onClick={() => onPick(p.key)}>
-            <span className="avatar" aria-hidden="true">{initial(p.name)}</span><b>{p.name}</b><i>{p.count}</i>
+          <button key={p.key} className={who === p.key ? "on" : ""} style={hueStyle(p.key)} aria-pressed={who === p.key} aria-label={`${p.name}, ${p.count} ${p.count === 1 ? "show" : "shows"}${p.email ? ", shared by email" : ""}`} onClick={() => onPick(p.key)}>
+            <span className="avatar" aria-hidden="true">{initial(p.name)}</span><b>{p.name}</b><i>{p.count}</i>{p.email && <span className="linked-mark" aria-hidden="true" title={`Shared with ${p.email}`}>✉</span>}
           </button>
         ))}
         <button className={`alone${who === ALONE ? " on" : ""}`} aria-pressed={who === ALONE} aria-label={`Alone, ${alone} ${alone === 1 ? "show" : "shows"}`}

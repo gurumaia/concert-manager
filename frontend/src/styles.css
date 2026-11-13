@@ -145,7 +145,11 @@ main.centered { min-height: 80vh; display: grid; place-content: center; text-ali
 .people-box input { flex: 1 1 8rem; width: auto; min-width: 6rem; border: 0; padding: .25rem .2rem; min-height: 30px; background: transparent; }
 .people-box input:focus { outline: none; }
 .people-list { list-style: none; margin: 0; padding: .25rem; position: absolute; top: 100%; left: 0; right: 0; z-index: 5; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgb(0 0 0 / .25); }
-.people-list li { padding: .5rem .65rem; border-radius: 6px; cursor: pointer; }
+.people-list li { padding: .5rem .65rem; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; gap: .75rem; }
+.chip.linked { background: var(--going-bg); color: var(--going); }
+.chip .chip-add { font: inherit; font-size: .75rem; margin-left: .4rem; padding: 0 .5rem; border: 1px dashed var(--muted); border-radius: 999px; background: transparent; color: var(--muted); cursor: pointer; min-height: 24px; }
+.chip .chip-add:hover { color: var(--text); border-color: var(--text); }
+.chip .chip-mail { width: 11rem; min-width: 0; flex: none; min-height: 26px; margin-left: .4rem; padding: 0 .4rem; font-size: .8rem; }
 .people-list li:hover, .people-list li.on { background: var(--surface-2); }
 
 .form { display: grid; gap: .8rem; }
@@ -540,3 +544,9 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-bullets { margin: 0; padding-left: 1.2rem; display: grid; gap: .2rem; }
 .rv-hint { margin: -.3rem 0 0; }
 .rv-links li.fresh { outline: 2px solid var(--going); }
+
+.hist-chips .linked-mark { font-size: .75rem; color: var(--going); }
+.hist-person-email { padding: .8rem 1rem; margin-top: .75rem; display: grid; gap: .4rem; }
+.hist-person-email label { display: grid; gap: .3rem; font-weight: 600; font-size: .9rem; }
+.hist-person-email .row { display: flex; gap: .5rem; flex-wrap: wrap; }
+.hist-person-email .row input { flex: 1 1 14rem; }

@@ -11,7 +11,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { OAuthState, Repo } from "../domain/repo.js";
 import type { Photo, PhotoRef } from "../domain/photos.js";
 import type { ReviewLink } from "../domain/review.js";
-import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
+import type { Person, Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 /**
  * Single-table layout (pk / sk, one GSI):
@@ -20,6 +20,7 @@ import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
  *   U#<user>  E#<id>             event
  *   U#<user>  R#<eventId>        rsvp
  *   U#<user>  SH#<eventId>#<em>  share index entry (gsi1pk SHARE#<email>)
+ *   U#<user>  PE#<personKey>     person in the "Going with" directory (name, optional email)
  *   U#<user>  PH#<eventId>#<id>  photo (metadata; the image lives in object storage)
  *   U#<user>  PHS#<id>#<email>   photo share index entry (gsi1pk PSHARE#<email>)
  *   U#<user>  PHP#<id>           photo public-link index entry (gsi1pk PUB#<token>)
@@ -163,6 +164,10 @@ export class DynamoRepo implements Repo {
     } while (key);
     return out;
   }
+
+  listPeople(u: string) { return this.listPrefix<Person>(this.pk(u), "PE#"); }
+  putPerson(u: string, p: Person) { return this.putItem(this.pk(u), `PE#${p.key}`, p); }
+  deletePerson(u: string, key: string) { return this.delItem(this.pk(u), `PE#${key}`); }
 
   getPhoto(u: string, eventId: string, id: string) { return this.getItem<Photo>(this.pk(u), `PH#${eventId}#${id}`); }
   listPhotos(u: string, eventId: string) { return this.listPrefix<Photo>(this.pk(u), `PH#${eventId}#`); }

@@ -251,6 +251,20 @@ export const ops: Op[] = [
     run: (s, c, i) => s.unshareRsvp(c, i.eventId, i.emails),
   }),
   op({
+    name: "list_people", title: "List people", readOnly: true,
+    description: "People from 'Going with' that have an email: name and email. Shows with these people are shared with their email.",
+    input: z.object({}),
+    run: (s, c) => s.listPeople(c),
+  }),
+  op({
+    name: "set_person_email", title: "Link a person to an email",
+    description:
+      "Set (or clear with null) the email of someone in 'Going with'. It applies to every show they are on, past and upcoming: those shows and their photos are shared with that email, " +
+      "so they see them under 'shared with me' (now, or once they sign up). Unlinking stops the sharing for those shows.",
+    input: z.object({ name: z.string().min(1).describe("The person's name as used in 'Going with'"), email: z.string().email().nullable() }),
+    run: (s, c, i) => s.setPersonEmail(c, i.name, i.email),
+  }),
+  op({
     name: "list_shared_with_me", title: "Shared with me", readOnly: true,
     description: "RSVPs other people have shared with the signed-in user's email (read-only).",
     input: z.object({}),

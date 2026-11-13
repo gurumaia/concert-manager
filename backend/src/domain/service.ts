@@ -13,9 +13,11 @@ import {
 } from "./photos.js";
 import type { Repo } from "./repo.js";
 import { personKey, type ReviewData, type ReviewLink, type ReviewRecipe, type ReviewShow } from "./review.js";
+import { Email } from "./schemas.js";
 import type { RecentSetlist, SetlistGateway } from "./setlist.js";
 import type {
   EventInput,
+  Person,
   Playlist,
   PlaylistInput,
   Setlist,
@@ -705,12 +707,15 @@ export class Service {
   /** Create or update the RSVP for an event (one per event). */
   async setRsvp(ctx: Ctx, eventId: string, input: RsvpInput) {
     const event = await this.mustEvent(ctx, eventId);
+    // Resolve the people first: linking a new email can update other shows' RSVPs, so `prev` is read after.
+    const companions = input.companions ? await this.resolveCompanions(ctx, input.companions) : undefined;
     const prev = await this.repo.getRsvp(ctx.userId, eventId);
     const now = this.now();
     const { score, actScores, ...rest } = input;
     const rsvp: Rsvp = {
       ...(prev ?? { sharedWith: [], createdAt: now }),
       ...stripUndefined(rest),
+      ...(companions ? { companions } : {}),
       status: input.status === "attended" ? "going" : input.status, // "attended" is retired: going + a past date means you went
       eventId,
       updatedAt: now,
@@ -720,7 +725,17 @@ export class Service {
       throw new AppError("invalid", `Tier "${rsvp.tierName}" not on this event. Tiers: ${event.tiers.map((t) => t.name).join(", ")}`);
     }
     const warnings = rsvp.status === "going" ? await this.conflicts(ctx, event) : [];
+    // People with an email are shared with: added when they join the list, dropped when they leave it.
+    const dir = await this.directory(ctx);
+    const emailsOf = (names?: string[]) => new Set((names ?? []).map((n) => dir.get(personKey(n))?.email).filter((e): e is string => !!e));
+    const was = emailsOf(prev?.companions), now_ = emailsOf(rsvp.companions);
+    const drop = [...was].filter((e) => !now_.has(e));
+    const me = ctx.email?.toLowerCase();
+    const add = [...now_].filter((e) => e !== me);
+    if (add.length) await this.ensureUser(ctx); // so the recipient can see who shared
+    rsvp.sharedWith = [...new Set([...rsvp.sharedWith.filter((e) => !drop.includes(e)), ...add])];
     await this.repo.putRsvp(ctx.userId, rsvp);
+    await this.sharePhotosWith(ctx, eventId, add, drop);
     const calendar = await this.syncRsvp(ctx, eventId);
     return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))!, warnings, calendar };
   }
@@ -791,6 +806,90 @@ export class Service {
       if (overlaps) out.push(`Conflicts with "${o.title}" on ${o.date}${o.startTime ? ` at ${o.startTime}` : ""} (you are going).`);
     }
     return out;
+  }
+
+  // ------------------------------------------------------------------ people
+  /** The user's people directory, by person key. */
+  private async directory(ctx: Ctx): Promise<Map<string, Person>> {
+    return new Map((await this.repo.listPeople(ctx.userId)).map((p) => [p.key, p]));
+  }
+
+  /** "Ana", "Ana <ana@x.com>" or "ana@x.com" -> name and optional (lower-cased) email. */
+  private parseCompanion(raw: string, dir: Map<string, Person>): { name: string; email?: string } | undefined {
+    const s = raw.trim().replace(/\s+/g, " ");
+    if (!s) return undefined;
+    const shaped = s.match(/^(.*?)\s*<\s*([^<>\s@,]+@[^<>\s@,]+)\s*>$/);
+    const bare = /^[^\s@,<>]+@[^\s@,<>]+$/.test(s) ? s : undefined;
+    const email = (shaped?.[2] ?? bare)?.toLowerCase();
+    if (!email) return { name: s };
+    if (!Email.safeParse(email).success) throw new AppError("invalid", `"${email}" is not a valid email address.`);
+    const known = [...dir.values()].find((p) => p.email === email); // an email you already linked is that person
+    const local = email.split("@")[0]!.replace(/[._-]+/g, " ");
+    const name = shaped?.[1]?.trim() || known?.name || local.charAt(0).toUpperCase() + local.slice(1);
+    return { name, email };
+  }
+
+  /** Turns what the user typed into plain names (de-duplicated), saving any email given to the person's entry. */
+  private async resolveCompanions(ctx: Ctx, raw: string[]): Promise<string[]> {
+    const dir = await this.directory(ctx);
+    const out = new Map<string, string>();
+    for (const r of raw) {
+      const p = this.parseCompanion(r, dir);
+      if (!p) continue;
+      const key = personKey(p.name);
+      if (!key) continue;
+      const known = dir.get(key);
+      if (p.email && known?.email !== p.email) {
+        const saved = await this.setPersonEmail(ctx, known?.name ?? p.name, p.email);
+        dir.set(key, saved.person!);
+      }
+      if (!out.has(key)) out.set(key, dir.get(key)?.name ?? p.name);
+    }
+    return [...out.values()];
+  }
+
+  async listPeople(ctx: Ctx) {
+    return [...(await this.directory(ctx)).values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Link a person from "Going with" to an email (or unlink with null), on every show they are on, past and upcoming:
+   * those shows and their photos are shared with the email, so they show up under "Shared with me", now or after they sign up.
+   */
+  async setPersonEmail(ctx: Ctx, name: string, email: string | null) {
+    const key = personKey(name);
+    if (!key) throw new AppError("invalid", "Give the person's name.");
+    const next = email?.trim().toLowerCase() || undefined;
+    if (next && !Email.safeParse(next).success) throw new AppError("invalid", `"${next}" is not a valid email address.`);
+    const known = (await this.directory(ctx)).get(key);
+    const old = known?.email;
+    const person: Person | undefined = next ? { key, name: known?.name ?? name.trim().replace(/\s+/g, " "), email: next } : undefined;
+    if (old === next) return { person: person ?? known, shows: 0 };
+    if (person) await this.repo.putPerson(ctx.userId, person); else await this.repo.deletePerson(ctx.userId, key);
+    if (next) await this.ensureUser(ctx); // so the recipient can see who shared
+    const dir = await this.directory(ctx);
+    const me = ctx.email?.toLowerCase();
+    let shows = 0;
+    for (const r of await this.repo.listRsvps(ctx.userId)) {
+      const names = r.companions ?? [];
+      if (!names.some((n) => personKey(n) === key)) continue;
+      const others = new Set(names.filter((n) => personKey(n) !== key).map((n) => dir.get(personKey(n))?.email).filter(Boolean));
+      const drop = old && !others.has(old) ? [old] : [];
+      const add = next && next !== me ? [next] : [];
+      await this.repo.putRsvp(ctx.userId, { ...r, sharedWith: [...new Set([...r.sharedWith.filter((e) => !drop.includes(e)), ...add])], updatedAt: this.now() });
+      await this.sharePhotosWith(ctx, r.eventId, add, drop);
+      shows++;
+    }
+    return { person: person ?? undefined, shows };
+  }
+
+  /** Adds and removes emails on every photo of a show (no storage access needed). */
+  private async sharePhotosWith(ctx: Ctx, eventId: string, add: string[], drop: string[]) {
+    if (!add.length && !drop.length) return;
+    for (const p of await this.repo.listPhotos(ctx.userId, eventId)) {
+      const sharedWith = [...new Set([...p.sharedWith.filter((e) => !drop.includes(e)), ...add])];
+      if (sharedWith.length !== p.sharedWith.length || sharedWith.some((e) => !p.sharedWith.includes(e))) await this.repo.putPhoto(ctx.userId, { ...p, sharedWith });
+    }
   }
 
   async shareRsvp(ctx: Ctx, eventId: string, emails: string[]) {
@@ -914,7 +1013,11 @@ export class Service {
   }
 
   private async savePhoto(ctx: Ctx, eventId: string, id: string, f: { key: string; thumbKey?: string; contentType: PhotoType; bytes: number }, caption?: string): Promise<PhotoView> {
-    const photo: Photo = { id, eventId, ...f, caption: this.cleanCaption(caption), sharedWith: [], createdAt: this.now() };
+    // A new photo goes to the people tagged on the show (the ones with an email).
+    const [rsvp, dir] = await Promise.all([this.repo.getRsvp(ctx.userId, eventId), this.directory(ctx)]);
+    const me = ctx.email?.toLowerCase();
+    const sharedWith = [...new Set((rsvp?.companions ?? []).map((n) => dir.get(personKey(n))?.email).filter((e): e is string => !!e && e !== me))];
+    const photo: Photo = { id, eventId, ...f, caption: this.cleanCaption(caption), sharedWith, createdAt: this.now() };
     await this.repo.putPhoto(ctx.userId, photo);
     return this.photoView(ctx, photo, true);
   }

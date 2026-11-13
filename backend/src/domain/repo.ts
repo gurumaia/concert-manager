@@ -1,6 +1,6 @@
 import type { Photo, PhotoRef } from "./photos.js";
 import type { ReviewLink } from "./review.js";
-import type { Rsvp, ShowEvent, UserProfile, Venue } from "./schemas.js";
+import type { Person, Rsvp, ShowEvent, UserProfile, Venue } from "./schemas.js";
 
 /** A pending Google OAuth handshake, keyed by the random `state` value. */
 export type OAuthState = { userId: string; expiresAt: number };
@@ -31,6 +31,11 @@ export interface Repo {
   listSharedWith(email: string): Promise<Array<{ ownerId: string; eventId: string }>>;
   /** Resolve a user by email (for showing who shared). */
   findUserByEmail(email: string): Promise<UserProfile | undefined>;
+
+  /** The user's people directory ("Going with" names that have an email). */
+  listPeople(userId: string): Promise<Person[]>;
+  putPerson(userId: string, person: Person): Promise<void>;
+  deletePerson(userId: string, key: string): Promise<void>;
 
   getPhoto(userId: string, eventId: string, id: string): Promise<Photo | undefined>;
   listPhotos(userId: string, eventId: string): Promise<Photo[]>;

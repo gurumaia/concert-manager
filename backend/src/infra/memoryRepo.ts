@@ -1,7 +1,7 @@
 import type { OAuthState, Repo } from "../domain/repo.js";
 import type { Photo, PhotoRef } from "../domain/photos.js";
 import type { ReviewLink } from "../domain/review.js";
-import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
+import type { Person, Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 const clone = <T>(v: T): T => structuredClone(v);
 
@@ -49,6 +49,11 @@ export class MemoryRepo implements Repo {
     }
     return out;
   }
+
+  people = new Map<string, Person>(); // key: user#personKey
+  async listPeople(u: string) { return this.scoped(this.people, u); }
+  async putPerson(u: string, p: Person) { this.people.set(this.k(u, p.key), clone(p)); }
+  async deletePerson(u: string, key: string) { this.people.delete(this.k(u, key)); }
 
   photos = new Map<string, Photo>(); // key: user#eventId#photoId
   async getPhoto(u: string, eventId: string, id: string) { const v = this.photos.get(this.k(u, `${eventId}#${id}`)); return v && clone(v); }

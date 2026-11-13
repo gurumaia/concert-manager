@@ -358,6 +358,16 @@ main.centered { padding: 1rem; }
 .setlist-songs { margin: 0 0 .5rem; padding-left: 1.6rem; display: grid; gap: .15rem; }
 .setlist-section-name { margin: .5rem 0 .2rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 
+.pl-act { border: 1px solid var(--border); border-radius: 10px; padding: .6rem .7rem; margin-bottom: .5rem; }
+.pl-act > b { display: block; font-size: .9rem; margin-bottom: .3rem; }
+.pl-line { display: flex; align-items: center; gap: .6rem; padding: .35rem 0; border-top: 1px solid var(--border); }
+.pl-act > b + .pl-line { border-top: 0; }
+.pl-text { flex: 1; min-width: 0; display: grid; }
+.pl-text b { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-badge { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; flex: none; }
+.pl-empty { border: 1px dashed var(--border); border-radius: 10px; padding: .6rem .7rem; margin: 0 0 .5rem; }
+.pl-empty b { color: var(--text); }
+
 .names ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; } .names li { justify-content: space-between; }
 
 /* score input */

@@ -89,10 +89,25 @@ export type SetlistInput = z.infer<typeof SetlistInput>;
 /** `manual` setlists are never overwritten by an automatic lookup. */
 export type Setlist = { act: string; songs: Song[]; url?: string; source: "setlist.fm" | "manual"; fetchedAt: string };
 
+// ---- Playlists ----
+/** Streaming services we know how to label. Others are stored as given (lower-cased) and shown with a neutral badge. */
+export const KNOWN_SERVICES = ["spotify"] as const;
+export const PlaylistInput = z.object({
+  act: z.string().min(1).describe("Which act of the lineup the playlist is for"),
+  service: z.string().min(1).describe("Streaming service, lower case, e.g. 'spotify'"),
+  url: z.string().url().nullable().describe("Link to the playlist. null removes this act's playlist on that service"),
+  title: z.string().optional().describe("Playlist name"),
+  trackCount: z.number().int().nonnegative().optional(),
+});
+export type PlaylistInput = z.infer<typeof PlaylistInput>;
+/** One playlist per act and service; saving again for the same pair replaces it. Built by the client (the LLM side), only stored here. */
+export type Playlist = { act: string; service: string; url: string; title?: string; trackCount?: number; createdAt: string };
+
 export type ShowEvent = Omit<EventInput, "venueId"> & {
   id: string;
   venueId?: string;
   setlists?: Setlist[];
+  playlists?: Playlist[];
   createdAt: string;
   updatedAt: string;
 };

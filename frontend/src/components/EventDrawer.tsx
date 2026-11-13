@@ -5,6 +5,7 @@ import type { EventView, VenueRow } from "../types";
 import { EventForm } from "./EventForm";
 import { Modal } from "./Modal";
 import { LineupSection } from "./LineupSection";
+import { PlaylistsSection } from "./PlaylistsSection";
 import { PhotosSection } from "./PhotosSection";
 import { RsvpPanel } from "./RsvpPanel";
 import { SetlistSection } from "./SetlistSection";
@@ -88,6 +89,8 @@ export function EventDrawer({ eventId, initial, venues, readOnly, ownerId, focus
       </div>
 
       <LineupSection event={event} readOnly={readOnly} onSaved={onChanged} />
+
+      <PlaylistsSection event={event} readOnly={readOnly} />
 
       <SetlistSection event={event} readOnly={readOnly} onUpdated={(e) => { setEvent(e); onChanged(); }} />
 

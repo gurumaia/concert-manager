@@ -14,9 +14,9 @@ const linkPreview = (): Plugin => ({
     const tags = [
       ["og:type", "website"], ["og:site_name", "Show Manager"], ["og:title", "Show Manager"],
       ["og:description", "Keep track of the concerts you go to, and relive them in a recap."],
-      ["og:image", `${origin}/og-image.png`], ["og:image:width", "1200"], ["og:image:height", "630"],
+      ["og:image", `${origin}/og-image.png`], ["og:image:width", "600"], ["og:image:height", "600"],
     ].map(([k, v]) => `    <meta property="${k}" content="${v}" />`);
-    tags.push(`    <meta name="twitter:card" content="summary_large_image" />`, `    <meta name="twitter:image" content="${origin}/og-image.png" />`);
+    tags.push(`    <meta name="twitter:card" content="summary" />`, `    <meta name="twitter:image" content="${origin}/og-image.png" />`);
     return html.replace("</title>", `</title>\n${tags.join("\n")}`);
   },
 });

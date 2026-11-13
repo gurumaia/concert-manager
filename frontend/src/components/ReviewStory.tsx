@@ -23,7 +23,7 @@ const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(pre
  * Slides advance on their own; pausing is sticky until the play button is pressed. Tap the left third to go back, the rest to go on.
  * The same component shows the owner's preview and the public page.
  */
-export function ReviewStory({ data, onClose, today, fullscreenOnStart }: { data: ReviewData; onClose?: () => void; today?: string; fullscreenOnStart?: boolean }) {
+export function ReviewStory({ data, onClose, today, fullscreenOnStart, cta }: { data: ReviewData; onClose?: () => void; today?: string; fullscreenOnStart?: boolean; /** On the last slide, a link for the viewer to make their own (the public page sets it). */ cta?: { href: string; label: string } }) {
   const slides = useMemo(() => buildDeck(data, today), [data, today]);
   const [index, setIndex] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -106,7 +106,7 @@ export function ReviewStory({ data, onClose, today, fullscreenOnStart }: { data:
   };
 
   return (
-    <div className="rv" ref={root} tabIndex={-1} onKeyDown={onKey} role="region" aria-label="Year in review">
+    <div className="rv" ref={root} tabIndex={-1} onKeyDown={onKey} role="region" aria-label="Recap">
       <div className="rv-bars" aria-hidden="true">
         {slides.map((_, i) => <i key={i} className={i < index ? "on" : i === index ? "cur" : ""}>{i === index && <b style={{ width: `${pct}%` }} />}</i>)}
       </div>
@@ -134,6 +134,7 @@ export function ReviewStory({ data, onClose, today, fullscreenOnStart }: { data:
       <div className="rv-slide" key={index}>
         <SlideView slide={slide} photoIdx={photoIdx} onPhoto={showPhoto} />
       </div>
+      {cta && slide.kind === "outro" && <a className="rv-cta rv-hand" href={cta.href}>{cta.label}</a>}
     </div>
   );
 }

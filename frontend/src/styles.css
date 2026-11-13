@@ -440,7 +440,7 @@ main.centered { padding: 1rem; }
 .photo-count:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .photo-tag { display: inline-flex; align-items: center; gap: .25rem; }
 
-/* ---- Year in review: the controls on the page ---- */
+/* ---- Recap: the controls on the page ---- */
 .rv-form { padding: 1rem; display: grid; gap: .7rem; margin: 0 0 .8rem; border-left-width: 1px; }
 .rv-form h2 { margin: 0; }
 .rv-chips { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
@@ -461,7 +461,7 @@ main.centered { padding: 1rem; }
 .rv-url { word-break: break-all; }
 .rv-link-actions { display: flex; gap: .4rem; }
 
-/* ---- Year in review: the story (scrapbook paper; fixed colours so it looks the same in light and dark) ---- */
+/* ---- Recap: the story (scrapbook paper; fixed colours so it looks the same in light and dark) ---- */
 .rv-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(15, 10, 6, .88); display: grid; place-items: center; }
 main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; display: grid; place-items: center; background: #1b1612; }
 .rv-public-msg { color: #f3ece4; padding: 1.5rem; text-align: center; max-width: 24rem; }
@@ -550,3 +550,7 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .hist-person-email label { display: grid; gap: .3rem; font-weight: 600; font-size: .9rem; }
 .hist-person-email .row { display: flex; gap: .5rem; flex-wrap: wrap; }
 .hist-person-email .row input { flex: 1 1 14rem; }
+/* The public recap's last slide: a way for the viewer to make their own. Sits above the tap areas (z-index 2) so it is clickable. */
+.rv-cta { position: absolute; left: 7cqw; right: 7cqw; bottom: 25cqw; z-index: 6; text-align: center; text-decoration: none; background: var(--red); color: #fff; font-size: 6cqw; padding: 3.2cqw 4cqw; border-radius: 3cqw; box-shadow: 0 3px 8px rgba(0, 0, 0, .25); }
+.rv-cta:hover { filter: brightness(1.06); }
+.rv-cta:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }

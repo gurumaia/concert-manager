@@ -383,13 +383,13 @@ export const ops: Op[] = [
   }),
   // ---- year in review (web app only)
   op({
-    name: "year_review", title: "Year in review", readOnly: true, uiOnly: true,
+    name: "year_review", title: "Recap", readOnly: true, uiOnly: true,
     description: "The shows you attended in a date range (optionally only with certain people), with photos, for the year-in-review screen.",
     input: ReviewRecipe,
     run: (s, c, i) => s.yearReview(c, i),
   }),
   op({
-    name: "create_review_link", title: "Share a year in review", uiOnly: true,
+    name: "create_review_link", title: "Share a recap", uiOnly: true,
     description: "Create a public, unlisted link to a year in review. Anyone with the link can see it; it shows the current photos of the matching shows.",
     input: ReviewRecipe.extend({ showNames: z.boolean().default(false).describe("Show the names of the people you went with") }),
     run: (s, c, { showNames, ...recipe }) => s.createReviewLink(c, recipe, showNames),

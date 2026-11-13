@@ -171,7 +171,7 @@ describe("ReviewStory", () => {
   it("stops on the last slide, and keys and the close button work", () => {
     const close = vi.fn();
     render(<ReviewStory data={DATA} today={TODAY} onClose={close} />);
-    const region = screen.getByRole("region", { name: "Year in review" });
+    const region = screen.getByRole("region", { name: "Recap" });
     for (let i = 0; i < 6; i++) fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(heading()).toBe("That's a wrap");
     tick(60_000);
@@ -179,6 +179,19 @@ describe("ReviewStory", () => {
     fireEvent.keyDown(region, { key: "Escape" });
     fireEvent.click(screen.getByLabelText("Close"));
     expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers a make-your-own link only on the last slide, and only when asked to", () => {
+    const cta = { href: "/", label: "Make your own recap" };
+    const { unmount } = render(<ReviewStory data={DATA} today={TODAY} cta={cta} />);
+    expect(screen.queryByRole("link", { name: cta.label })).toBeNull();
+    const region = screen.getByRole("region", { name: "Recap" });
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByRole("link", { name: cta.label }).getAttribute("href")).toBe("/");
+    unmount();
+    render(<ReviewStory data={DATA} today={TODAY} />);
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(screen.getByRole("region", { name: "Recap" }), { key: "ArrowRight" });
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   it("starts paused for people who asked for reduced motion", () => {

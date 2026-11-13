@@ -25,6 +25,8 @@ STACK="show-manager-$ENV"; REGION="${AWS_REGION:-us-east-1}"
 
 # the Lambda bundle inlines the MCP App page, so the frontend app bundle is built first
 (cd backend && npm ci)
+# the site's public address goes into the link-preview tags (see frontend/vite.config.ts)
+SITE_ORIGIN="https://$(sed -n 's/^DomainName=//p' "env/$ENV.params")" && export SITE_ORIGIN
 (cd frontend && npm ci && npm test && npm run build)
 (cd backend && npm test && npm run build)
 sam build --no-cached

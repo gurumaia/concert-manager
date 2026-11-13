@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ReviewStory } from "../components/ReviewStory";
 import type { ReviewData } from "../types";
 
-/** A shared year in review (/r/<token>): no sign-in, no app chrome, kept out of search engines. */
+/** A shared recap (/r/<token>): no sign-in, no app chrome, kept out of search engines. */
 export function PublicReviewPage({ token }: { token: string }) {
   const [data, setData] = useState<ReviewData>();
   const [state, setState] = useState<"loading" | "missing" | "error" | "ready">("loading");
@@ -33,7 +33,7 @@ export function PublicReviewPage({ token }: { token: string }) {
       {state === "loading" && <p className="rv-public-msg">Loading…</p>}
       {state === "missing" && <p className="rv-public-msg" role="alert">This link is not available. It may have been turned off by its owner.</p>}
       {state === "error" && <p className="rv-public-msg" role="alert">Could not load this page. Please try again in a moment.</p>}
-      {state === "ready" && data && (data.shows.length ? <ReviewStory data={data} /> : <p className="rv-public-msg">Nothing to show here yet.</p>)}
+      {state === "ready" && data && (data.shows.length ? <ReviewStory data={data} cta={{ href: "/", label: "Make your own recap" }} /> : <p className="rv-public-msg">Nothing to show here yet.</p>)}
     </main>
   );
 }

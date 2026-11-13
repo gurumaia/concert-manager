@@ -25,6 +25,7 @@ import type {
   Rsvp,
   RsvpInput,
   ShowEvent,
+  TagLoss,
   UserProfile,
   Venue,
   VenueInput,
@@ -51,7 +52,9 @@ export type SetlistActResult = { act: string; status: "found" | "not_found" | "k
  * "attended" any more; a past show you did not go to has to be marked skipped.
  */
 export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean; /** Photos you can see on this show (yours, or the ones shared with you). */ photoCount: number;
-  /** The best score of the show's acts (or the overall score when no act has one); what lists show. Only for shows you attended. */ topScore?: number };
+  /** The best score of the show's acts (or the overall score when no act has one); what lists show. Only for shows you attended. */ topScore?: number;
+  /** A show someone else owns that you were tagged on: its details are theirs (read-only), the RSVP, score and photos are yours. */ tagged?: boolean;
+  /** Who tagged you on this show (also set on your own copy of the same show when it matches). */ taggedBy?: Array<{ id: string; name?: string; email?: string }> };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
 type VenueResolution = { id?: string; pending?: VenueInput; note?: VenueNote };
@@ -501,7 +504,120 @@ export class Service {
     return { event: await this.view(ctx, next), calendar: sync };
   }
 
-  async getEvent(ctx: Ctx, id: string) { return this.view(ctx, await this.mustEvent(ctx, id)); }
+  async getEvent(ctx: Ctx, id: string): Promise<EventView> {
+    const own = await this.repo.getEvent(ctx.userId, id);
+    const tagged = (await this.taggedShows(ctx));
+    if (own) {
+      const view = await this.view(ctx, own);
+      const by = tagged.filter((t) => this.sameShow(view, view.venue, t.event, t.venue)).map((t) => t.tagger);
+      return by.length ? { ...view, taggedBy: by } : view;
+    }
+    const t = tagged.find((x) => x.event.id === id);
+    if (!t) throw new AppError("not_found", `Event ${id} not found`);
+    const email = (await this.ensureUser(ctx)).email?.toLowerCase();
+    const [rsvp, mine, theirs] = await Promise.all([this.repo.getRsvp(ctx.userId, id), this.repo.listPhotos(ctx.userId, id), this.repo.listPhotos(t.tagger.id, id)]);
+    const shared = theirs.filter((p) => !!email && p.sharedWith.includes(email)).length;
+    return { ...this.toView(t.event, t.venue, rsvp ?? null, (v) => this.todayAt(v), mine.length + shared), tagged: true, taggedBy: [t.tagger] };
+  }
+
+  // ----------------------------------------------------------- tagged shows
+  /**
+   * Shows other people own that I can see because they tagged me (their RSVP or photos are shared with my email).
+   * Their details stay theirs and read-only; my RSVP, score and photos on them live under my account, keyed by their event id.
+   */
+  private async taggedShows(ctx: Ctx): Promise<Array<{ event: ShowEvent; venue: Venue | null; tagger: { id: string; name?: string; email?: string } }>> {
+    const email = (await this.ensureUser(ctx)).email;
+    if (!email) return [];
+    const refs = [...(await this.repo.listSharedWith(email)), ...(await this.repo.listPhotosSharedWith(email))];
+    const seen = new Set<string>();
+    const out: Awaited<ReturnType<Service["taggedShows"]>> = [];
+    for (const { ownerId, eventId } of refs) {
+      const key = `${ownerId}#${eventId}`;
+      if (ownerId === ctx.userId || seen.has(key)) continue;
+      seen.add(key);
+      const event = await this.repo.getEvent(ownerId, eventId);
+      if (!event) continue;
+      const [venue, owner] = await Promise.all([event.venueId ? this.repo.getVenue(ownerId, event.venueId) : undefined, this.repo.getUser(ownerId)]);
+      out.push({ event, venue: venue ?? null, tagger: { id: ownerId, name: owner?.name, email: owner?.email } });
+    }
+    return out;
+  }
+
+  /** The same concert on two lists: same day, and the same title or the same venue (name on that day, and city). */
+  private sameShow(a: { title: string; date: string }, av: { name: string; city?: string } | null | undefined, b: ShowEvent, bv: Venue | null) {
+    if (a.date !== b.date) return false;
+    if (norm(a.title) === norm(b.title)) return true;
+    return !!av && !!bv && norm(av.name) === norm(nameAt(bv, b.date)) && norm(av.city ?? "") === norm(bv.city ?? "");
+  }
+
+  /** An event I can act on: mine, or a show I was tagged on (then only my RSVP, score and photos are mine to change). */
+  private async eventForMe(ctx: Ctx, id: string): Promise<{ event: ShowEvent; ownerId: string; tagged: boolean }> {
+    const own = await this.repo.getEvent(ctx.userId, id);
+    if (own) return { event: own, ownerId: ctx.userId, tagged: false };
+    const t = (await this.taggedShows(ctx)).find((x) => x.event.id === id);
+    if (!t) throw new AppError("not_found", `Event ${id} not found`);
+    return { event: t.event, ownerId: t.tagger.id, tagged: true };
+  }
+
+  /**
+   * Emails stopped being shared on one of my shows. Anyone who had answered it (an RSVP or photos of their own) is offered a copy
+   * (`gone`: the show itself is being deleted, so nothing keeps it visible). Those who never answered just stop seeing it.
+   */
+  private async markLost(ctx: Ctx, event: ShowEvent, emails: string[], gone = false) {
+    if (!emails.length) return;
+    const [rsvp, photos, venue, me] = await Promise.all([
+      this.repo.getRsvp(ctx.userId, event.id), this.repo.listPhotos(ctx.userId, event.id),
+      event.venueId ? this.repo.getVenue(ctx.userId, event.venueId) : undefined, this.repo.getUser(ctx.userId),
+    ]);
+    const still = new Set(gone ? [] : [...(rsvp?.sharedWith ?? []), ...photos.flatMap((p) => p.sharedWith)]);
+    for (const raw of new Set(emails.map((e) => e.toLowerCase()))) {
+      if (still.has(raw)) continue;
+      const user = await this.repo.findUserByEmail(raw);
+      if (!user || user.id === ctx.userId) continue;
+      const [theirs, theirPhotos] = await Promise.all([this.repo.getRsvp(user.id, event.id), this.repo.listPhotos(user.id, event.id)]);
+      if (!theirs && !theirPhotos.length) continue;
+      await this.repo.putTagLoss(user.id, { ownerId: ctx.userId, ownerName: me?.name ?? ctx.name ?? me?.email, eventId: event.id, event, venue: venue ?? null, lostAt: this.now() });
+    }
+  }
+
+  /** Shows I answered after being tagged, which the owner has since taken me off (or deleted). */
+  async listTagLosses(ctx: Ctx) {
+    const visible = new Set((await this.taggedShows(ctx)).map((t) => `${t.tagger.id}#${t.event.id}`));
+    const out: Array<{ ownerId: string; ownerName?: string; eventId: string; title: string; date: string; venue?: string; photoCount: number }> = [];
+    for (const l of await this.repo.listTagLosses(ctx.userId)) {
+      if (visible.has(`${l.ownerId}#${l.eventId}`)) { await this.repo.deleteTagLoss(ctx.userId, l.ownerId, l.eventId); continue; } // tagged again
+      out.push({ ownerId: l.ownerId, ownerName: l.ownerName, eventId: l.eventId, title: l.event.title, date: l.event.date, venue: l.venue?.name, photoCount: (await this.repo.listPhotos(ctx.userId, l.eventId)).length });
+    }
+    return out;
+  }
+
+  /** `keep`: the show becomes one of mine, with my RSVP, score and photos. Otherwise my RSVP, score and photos of it are deleted. */
+  async resolveTagLoss(ctx: Ctx, ownerId: string, eventId: string, keep: boolean) {
+    const loss = (await this.repo.listTagLosses(ctx.userId)).find((l) => l.ownerId === ownerId && l.eventId === eventId);
+    if (!loss) throw new AppError("not_found", "Nothing to resolve for that show.");
+    if (!keep) {
+      await this.repo.deleteRsvp(ctx.userId, eventId);
+      for (const p of await this.repo.listPhotos(ctx.userId, eventId)) await this.removePhoto(ctx, p);
+      await this.repo.deleteTagLoss(ctx.userId, ownerId, eventId);
+      return { kept: false as const };
+    }
+    const { id: _id, venueId: _v, createdAt: _c, updatedAt: _u, setlists: _s, playlists: _p, ...fields } = loss.event;
+    const v = loss.venue;
+    const venue: VenueInput | undefined = v ? stripUndefined({ name: nameAt(v, loss.event.date), address: v.address, city: v.city, state: v.state, country: v.country, timezone: v.timezone, capacity: v.capacity, website: v.website, mapsUrl: v.mapsUrl }) as VenueInput : undefined;
+    const made = await this.createEvent(ctx, { ...fields, ...(venue ? { venue } : {}) }, "skip");
+    const newId = made.event.id;
+    const rsvp = await this.repo.getRsvp(ctx.userId, eventId);
+    if (rsvp) {
+      if (!(await this.repo.getRsvp(ctx.userId, newId))) await this.repo.putRsvp(ctx.userId, { ...rsvp, eventId: newId, sharedWith: [], updatedAt: this.now() });
+      await this.repo.deleteRsvp(ctx.userId, eventId);
+    }
+    for (const p of await this.repo.listPhotos(ctx.userId, eventId)) {
+      await this.repo.deletePhoto(ctx.userId, eventId, p.id); // first: it clears the share index entries the new row writes again
+      await this.repo.putPhoto(ctx.userId, { ...p, eventId: newId });
+    }
+    await this.repo.deleteTagLoss(ctx.userId, ownerId, eventId);
+    return { kept: true as const, event: await this.getEvent(ctx, newId) };
+  }
 
   // --------------------------------------------------------------- setlists
   /** Today's date where the show happens. */
@@ -628,12 +744,14 @@ export class Service {
   }
 
   async deleteEvent(ctx: Ctx, id: string) {
-    await this.mustEvent(ctx, id);
+    const event = await this.mustEvent(ctx, id);
     const rsvp = await this.repo.getRsvp(ctx.userId, id);
     let calendar: SyncResult = { status: "skipped" };
     if (rsvp?.calendarEventId) calendar = await this.removeFromCalendar(ctx, rsvp);
+    const photos = await this.repo.listPhotos(ctx.userId, id);
+    await this.markLost(ctx, event, [...(rsvp?.sharedWith ?? []), ...photos.flatMap((p) => p.sharedWith)], true);
     await this.repo.deleteRsvp(ctx.userId, id);
-    for (const p of await this.repo.listPhotos(ctx.userId, id)) await this.removePhoto(ctx, p);
+    for (const p of photos) await this.removePhoto(ctx, p);
     await this.repo.deleteEvent(ctx.userId, id);
     return { deleted: id, calendar };
   }
@@ -644,6 +762,8 @@ export class Service {
       from?: string; to?: string; upcoming?: boolean; venueId?: string; city?: string; text?: string;
       saleStatus?: string; rsvp?: "none" | "interested" | "going" | "skipped" | "attended" | "any";
       limit?: number; offset?: number; sort?: "asc" | "desc";
+      /** Also list shows other people tagged me on (what the app and MCP lists want). Reports and stats leave it off: they are about my own shows. */
+      tagged?: boolean;
     } = {},
   ) {
     const [events, rsvps, venues, photos] = await Promise.all([
@@ -662,6 +782,15 @@ export class Service {
     const today = this.now().slice(0, 10);
     const q = f.text ? norm(f.text) : undefined;
     let out = events.map<EventView>((e) => this.toView(e, (e.venueId && vMap.get(e.venueId)) || null, rMap.get(e.id) ?? null, todayIn, photoCounts.get(e.id) ?? 0));
+    if (f.tagged) {
+      const email = (await this.ensureUser(ctx)).email?.toLowerCase();
+      for (const t of await this.taggedShows(ctx)) {
+        const same = out.find((o) => this.sameShow(o, o.venue, t.event, t.venue));
+        if (same) { same.taggedBy = [...(same.taggedBy ?? []), t.tagger]; continue; } // already on my list (or another friend tagged it too)
+        const shared = email ? (await this.repo.listPhotos(t.tagger.id, t.event.id)).filter((p) => p.sharedWith.includes(email)).length : 0;
+        out.push({ ...this.toView(t.event, t.venue, rMap.get(t.event.id) ?? null, todayIn, (photoCounts.get(t.event.id) ?? 0) + shared), tagged: true, taggedBy: [t.tagger] });
+      }
+    }
     out = out.filter((e) => {
       if (f.from && e.date < f.from) return false;
       if (f.to && e.date > f.to) return false;
@@ -706,21 +835,26 @@ export class Service {
   // ------------------------------------------------------------------- RSVP
   /** Create or update the RSVP for an event (one per event). */
   async setRsvp(ctx: Ctx, eventId: string, input: RsvpInput) {
-    const event = await this.mustEvent(ctx, eventId);
+    const { event, ownerId, tagged } = await this.eventForMe(ctx, eventId);
     // Resolve the people first: linking a new email can update other shows' RSVPs, so `prev` is read after.
-    const companions = input.companions ? await this.resolveCompanions(ctx, input.companions) : undefined;
+    // On a show someone else owns, only my answer, score and notes are mine: no ticket details, no people list, no calendar.
+    const companions = !tagged && input.companions ? await this.resolveCompanions(ctx, input.companions) : undefined;
     const prev = await this.repo.getRsvp(ctx.userId, eventId);
     const now = this.now();
-    const { score, actScores, ...rest } = input;
+    const { score, actScores, companions: _ignored, ...rest } = input;
     const rsvp: Rsvp = {
       ...(prev ?? { sharedWith: [], createdAt: now }),
-      ...stripUndefined(rest),
+      ...stripUndefined(tagged ? { status: rest.status, notes: rest.notes } : rest),
       ...(companions ? { companions } : {}),
       status: input.status === "attended" ? "going" : input.status, // "attended" is retired: going + a past date means you went
       eventId,
       updatedAt: now,
     };
-    await this.applyScores(ctx, event, rsvp, score, actScores);
+    await this.applyScores(ctx, event, rsvp, score, actScores, ownerId);
+    if (tagged) {
+      await this.repo.putRsvp(ctx.userId, rsvp);
+      return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))!, warnings: [] as string[], calendar: { status: "skipped" } as SyncResult };
+    }
     if (rsvp.tierName && event.tiers?.length && !event.tiers.some((t) => t.name === rsvp.tierName)) {
       throw new AppError("invalid", `Tier "${rsvp.tierName}" not on this event. Tiers: ${event.tiers.map((t) => t.name).join(", ")}`);
     }
@@ -736,15 +870,16 @@ export class Service {
     rsvp.sharedWith = [...new Set([...rsvp.sharedWith.filter((e) => !drop.includes(e)), ...add])];
     await this.repo.putRsvp(ctx.userId, rsvp);
     await this.sharePhotosWith(ctx, eventId, add, drop);
+    await this.markLost(ctx, event, drop);
     const calendar = await this.syncRsvp(ctx, eventId);
     return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))!, warnings, calendar };
   }
 
   /**
    * Overall and per-act scores. Only a show you attended (going, date over) can carry them; once the RSVP is anything else they are dropped.
-   * `acts` merges into the existing ones: an act set to null is cleared, null clears them all.
+   * `acts` merges into the existing ones: an act set to null is cleared, null clears them all. `owner`: whose venue gives the show's time zone.
    */
-  private async applyScores(ctx: Ctx, event: ShowEvent, rsvp: Rsvp, score: number | null | undefined, acts: Record<string, number | null> | null | undefined) {
+  private async applyScores(ctx: Ctx, event: ShowEvent, rsvp: Rsvp, score: number | null | undefined, acts: Record<string, number | null> | null | undefined, owner = ctx.userId) {
     const valid = (n: number) => n >= 0 && n <= 10 && Number.isInteger(n * 2);
     if (typeof score === "number" && !valid(score)) throw new AppError("invalid", "Score must be between 0 and 10 in steps of 0.5.");
     if (score === null) delete rsvp.score;
@@ -763,33 +898,35 @@ export class Service {
     }
     const setting = typeof score === "number" || (!!acts && Object.values(acts).some((v) => typeof v === "number"));
     if (setting) {
-      const venue = event.venueId ? await this.repo.getVenue(ctx.userId, event.venueId) : undefined;
+      const venue = event.venueId ? await this.repo.getVenue(owner, event.venueId) : undefined;
       if (rsvp.status !== "going" || event.date >= this.todayAt(venue)) throw new AppError("invalid", "Only a show you attended (going, with a date in the past) can be scored.");
     } else if (rsvp.status !== "going") { delete rsvp.score; delete rsvp.actScores; } // scores from before you changed your mind
   }
 
   /** Change only the scores of an attended show (no calendar sync, no conflict check): cheap enough to call on every slider move. */
   async setScores(ctx: Ctx, eventId: string, input: { score?: number | null; actScores?: Record<string, number | null> | null }) {
-    const event = await this.mustEvent(ctx, eventId);
+    const { event, ownerId } = await this.eventForMe(ctx, eventId);
     const prev = await this.repo.getRsvp(ctx.userId, eventId);
     if (!prev) throw new AppError("not_found", "Mark the show as going first, then score it.");
     const rsvp: Rsvp = { ...prev, status: prev.status === "attended" ? "going" : prev.status, updatedAt: this.now() };
-    await this.applyScores(ctx, event, rsvp, input.score, input.actScores);
+    await this.applyScores(ctx, event, rsvp, input.score, input.actScores, ownerId);
     await this.repo.putRsvp(ctx.userId, rsvp);
     return { rsvp: (await this.repo.getRsvp(ctx.userId, eventId))! };
   }
 
   async removeRsvp(ctx: Ctx, eventId: string) {
-    await this.mustEvent(ctx, eventId);
+    const { event, tagged } = await this.eventForMe(ctx, eventId);
     const r = await this.repo.getRsvp(ctx.userId, eventId);
     if (!r) throw new AppError("not_found", "No RSVP on this event");
+    if (tagged) { await this.repo.deleteRsvp(ctx.userId, eventId); return { removed: eventId, calendar: { status: "skipped" } as SyncResult }; }
     const calendar = r.calendarEventId ? await this.removeFromCalendar(ctx, r) : ({ status: "skipped" } as SyncResult);
     await this.repo.deleteRsvp(ctx.userId, eventId);
+    await this.markLost(ctx, event, r.sharedWith);
     return { removed: eventId, calendar };
   }
 
   async listRsvps(ctx: Ctx, status?: RsvpInput["status"]) {
-    const { events } = await this.listEvents(ctx, { rsvp: status ?? "any", limit: 1000 });
+    const { events } = await this.listEvents(ctx, { rsvp: status ?? "any", limit: 1000, tagged: true });
     return events.filter((e) => e.rsvp);
   }
 
@@ -878,6 +1015,8 @@ export class Service {
       const add = next && next !== me ? [next] : [];
       await this.repo.putRsvp(ctx.userId, { ...r, sharedWith: [...new Set([...r.sharedWith.filter((e) => !drop.includes(e)), ...add])], updatedAt: this.now() });
       await this.sharePhotosWith(ctx, r.eventId, add, drop);
+      const show = await this.repo.getEvent(ctx.userId, r.eventId);
+      if (show) await this.markLost(ctx, show, drop);
       shows++;
     }
     return { person: person ?? undefined, shows };
@@ -909,6 +1048,8 @@ export class Service {
     const drop = new Set(emails.map((e) => e.trim().toLowerCase()));
     const next = { ...r, sharedWith: r.sharedWith.filter((e) => !drop.has(e)), updatedAt: this.now() };
     await this.repo.putRsvp(ctx.userId, next);
+    const show = await this.repo.getEvent(ctx.userId, eventId);
+    if (show) await this.markLost(ctx, show, [...drop]);
     return { eventId, sharedWith: next.sharedWith };
   }
 
@@ -942,7 +1083,7 @@ export class Service {
   private tmpKeys = (ctx: Ctx, id: string) => ({ key: `tmp/${this.who(ctx)}/${id}`, thumbKey: `tmp/${this.who(ctx)}/${id}.thumb` });
 
   private async checkRoom(ctx: Ctx, eventId: string) {
-    await this.mustEvent(ctx, eventId);
+    await this.eventForMe(ctx, eventId);
     if ((await this.repo.listPhotos(ctx.userId, eventId)).length >= MAX_PHOTOS_PER_EVENT) {
       throw new AppError("invalid", `A show can have at most ${MAX_PHOTOS_PER_EVENT} photos. Delete one first.`);
     }
@@ -1037,7 +1178,7 @@ export class Service {
   /** My photos of a show; or, with `ownerId`, the ones that person shared with my email. */
   async listPhotos(ctx: Ctx, eventId: string, ownerId?: string): Promise<PhotoView[]> {
     if (!ownerId || ownerId === ctx.userId) {
-      await this.mustEvent(ctx, eventId);
+      await this.eventForMe(ctx, eventId);
       const mine = (await this.repo.listPhotos(ctx.userId, eventId)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       return Promise.all(mine.map((p) => this.photoView(ctx, p, true)));
     }
@@ -1048,7 +1189,7 @@ export class Service {
   }
 
   private async myPhotos(ctx: Ctx, eventId: string, ids?: string[]) {
-    await this.mustEvent(ctx, eventId);
+    await this.eventForMe(ctx, eventId);
     const all = await this.repo.listPhotos(ctx.userId, eventId);
     if (!ids) return all;
     const found = ids.map((id) => all.find((p) => p.id === id));
@@ -1084,7 +1225,10 @@ export class Service {
   }
   async unsharePhotos(ctx: Ctx, eventId: string, emails: string[], photoIds?: string[]) {
     const drop = new Set(emails.map((e) => e.trim().toLowerCase()));
-    return this.changePhotos(ctx, eventId, photoIds, (p) => ({ ...p, sharedWith: p.sharedWith.filter((e) => !drop.has(e)) }));
+    const out = await this.changePhotos(ctx, eventId, photoIds, (p) => ({ ...p, sharedWith: p.sharedWith.filter((e) => !drop.has(e)) }));
+    const show = await this.repo.getEvent(ctx.userId, eventId);
+    if (show) await this.markLost(ctx, show, [...drop]);
+    return out;
   }
   /** Turn the public link on (anyone with the link can see the photo) or off (the old link stops working). */
   async setPhotosPublic(ctx: Ctx, eventId: string, enabled: boolean, photoIds?: string[]) {

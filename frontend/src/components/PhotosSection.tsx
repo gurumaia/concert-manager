@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { op } from "../api";
 import { MAX_PHOTOS, uploadPhoto } from "../photos";
 import type { EventView, PhotoView } from "../types";
 import { Modal } from "./Modal";
 
 /** Photos of a show. Mine are private until I share them; `ownerId` shows what someone else shared with me. */
-export function PhotosSection({ event, ownerId, readOnly, scrollTo, onChange }: { event: EventView; ownerId?: string; readOnly?: boolean; /** Bring the section into view once its photos have loaded. */ scrollTo?: boolean; /** Photos were added or deleted (so counts elsewhere can refresh). */ onChange?: () => void }) {
+export function PhotosSection({ event, ownerId, readOnly, sharedBy, scrollTo, onChange }: { event: EventView; ownerId?: string; readOnly?: boolean; /** Who shared these (heading of the read-only section). */ sharedBy?: string; /** Bring the section into view once its photos have loaded. */ scrollTo?: boolean; /** Photos were added or deleted (so counts elsewhere can refresh). */ onChange?: () => void }) {
+  const heading = useId();
   const [photos, setPhotos] = useState<PhotoView[]>();
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<string>();
@@ -45,8 +46,8 @@ export function PhotosSection({ event, ownerId, readOnly, scrollTo, onChange }: 
   const full = (photos?.length ?? 0) >= MAX_PHOTOS;
 
   return (
-    <section ref={section} aria-labelledby="photos-h" className="photos-section">
-      <h3 id="photos-h">Photos {photos?.length ? <span className="muted small">{photos.length}{mine ? ` / ${MAX_PHOTOS}` : ""}</span> : null}</h3>
+    <section ref={section} aria-labelledby={heading} className="photos-section">
+      <h3 id={heading}>{readOnly && sharedBy ? `Photos from ${sharedBy}` : "Photos"} {photos?.length ? <span className="muted small">{photos.length}{mine ? ` / ${MAX_PHOTOS}` : ""}</span> : null}</h3>
       {mine && <p className="muted small">{photos?.some((p) => p.sharedWith.length || p.publicUrl) ? "Only you can see photos you haven’t shared." : "Only you can see these photos. You choose who else can."}</p>}
       {photos && photos.length > 0 && (
         <ul className="photo-grid">

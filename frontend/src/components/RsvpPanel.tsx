@@ -8,7 +8,8 @@ import type { EventView, RsvpStatus, SyncResult } from "../types";
 const STATUSES: RsvpStatus[] = ["interested", "going", "skipped"];
 type SetRsvpResult = { rsvp: NonNullable<EventView["rsvp"]>; warnings: string[]; calendar: SyncResult };
 
-export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: () => void }) {
+/** `tagged`: someone else's show you were tagged on. Only your answer and notes are yours there: no tickets, people or calendar. */
+export function RsvpPanel({ event, onChanged, tagged }: { event: EventView; onChanged: () => void; tagged?: boolean }) {
   const r = event.rsvp;
   const [tier, setTier] = useState(r?.tierName ?? "");
   const [qty, setQty] = useState(r?.quantity?.toString() ?? "");
@@ -33,10 +34,11 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
     } catch { return undefined; }
   }, []);
   useEffect(() => {
+    if (tagged) return;
     let live = true;
     void loadPeople().then((p) => { if (live && p) setPeople(p); });
     return () => { live = false; };
-  }, [loadPeople]);
+  }, [loadPeople, tagged]);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setError(undefined);
@@ -44,11 +46,13 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
   }
 
   const save = (status: RsvpStatus) => run(async () => {
-    const res = await op<SetRsvpResult>("set_rsvp", {
-      eventId: event.id, status,
-      tierName: tier || undefined, quantity: n(qty), pricePaid: n(paid), feesPaid: n(fees),
-      companions, notes: notes.trim() || undefined,
-    });
+    const res = await op<SetRsvpResult>("set_rsvp", tagged
+      ? { eventId: event.id, status, notes: notes.trim() || undefined }
+      : {
+        eventId: event.id, status,
+        tierName: tier || undefined, quantity: n(qty), pricePaid: n(paid), feesPaid: n(fees),
+        companions, notes: notes.trim() || undefined,
+      });
     setMsg({ warnings: res.warnings, calendar: res.calendar });
     setCompanions(res.rsvp.companions ?? []);
     const p = await loadPeople(); if (p) setPeople(p); // the emails just linked
@@ -82,7 +86,7 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
 
       {r && (
         <div className="form compact">
-          <div className="grid-4">
+          {!tagged && <div className="grid-4">
             <label>Tier
               <select value={tier} onChange={(e) => setTier(e.target.value)}>
                 <option value="">—</option>
@@ -92,16 +96,16 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
             <label>Tickets<input inputMode="numeric" value={qty} onChange={(e) => setQty(e.target.value)} /></label>
             {showTicketFields && <label>Paid ({event.currency ?? "BRL"})<input inputMode="decimal" value={paid} onChange={(e) => setPaid(e.target.value)} /></label>}
             {showTicketFields && <label>Fees paid<input inputMode="decimal" value={fees} onChange={(e) => setFees(e.target.value)} /></label>}
-          </div>
-          <PeopleInput label="Going with" value={companions} onChange={setCompanions} people={people} />
+          </div>}
+          {!tagged && <PeopleInput label="Going with" value={companions} onChange={setCompanions} people={people} />}
           <label>Notes<input value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
           <div className="actions">
             <button className="btn" disabled={busy} onClick={() => save(r.status)}>Save details</button>
             <button className="btn danger" disabled={busy} onClick={() => run(async () => { await op("remove_rsvp", { eventId: event.id }); onChanged(); })}>Remove RSVP</button>
           </div>
-          {r.pricePaid !== undefined && <p className="muted small">Total paid {money(r.pricePaid + (r.feesPaid ?? 0), event.currency)}{r.feesPaid ? ` (${money(r.feesPaid, event.currency)} fees)` : ""}</p>}
+          {!tagged && r.pricePaid !== undefined && <p className="muted small">Total paid {money(r.pricePaid + (r.feesPaid ?? 0), event.currency)}{r.feesPaid ? ` (${money(r.feesPaid, event.currency)} fees)` : ""}</p>}
 
-          {sharedOnly.length > 0 && (
+          {!tagged && sharedOnly.length > 0 && (
             <div className="people">
               <span className="people-label">Also shared with</span>
               <ul className="chips">
@@ -113,7 +117,7 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
               </ul>
             </div>
           )}
-          <p className="muted small">People with an email see this show, and its photos, under “Shared with me” when they sign in with it, now or later. Add one by typing it, or with “+ email” on a name.</p>
+          {!tagged && <p className="muted small">People with an email see this show, and its photos, in their own shows when they sign in with it, now or later. Add one by typing it, or with “+ email” on a name.</p>}
         </div>
       )}
     </section>

@@ -10,21 +10,21 @@ import { PhotosSection } from "./PhotosSection";
 import { RsvpPanel } from "./RsvpPanel";
 import { SetlistSection } from "./SetlistSection";
 
-/** Event details + RSVP + edit. `readOnly` is for events shared with me. */
-export function EventDrawer({ eventId, initial, venues, readOnly, ownerId, focus, onClose, onChanged }: {
-  eventId?: string; initial?: EventView; venues: VenueRow[]; readOnly?: boolean; /** Whose photos to show when the event is shared with me. */ ownerId?: string; /** Open scrolled to the photos. */ focus?: "photos"; onClose: () => void; onChanged: () => void;
+/** Event details + RSVP + edit. On a show someone else tagged you on (`event.tagged`) the details are theirs and read-only; your RSVP, score and photos are yours. */
+export function EventDrawer({ eventId, initial, venues, focus, onClose, onChanged }: {
+  eventId?: string; initial?: EventView; venues: VenueRow[]; /** Open scrolled to the photos. */ focus?: "photos"; onClose: () => void; onChanged: () => void;
 }) {
   const [event, setEvent] = useState<EventView | undefined>(initial);
   const [mode, setMode] = useState<"view" | "edit">(eventId || initial ? "view" : "edit");
   const [error, setError] = useState<string>();
 
   const reload = useCallback(async () => {
-    if (!eventId || readOnly) return;
+    if (!eventId) return;
     try { setEvent(await op<EventView>("get_event", { eventId })); } catch (e) { setError((e as Error).message); }
     onChanged();
-  }, [eventId, readOnly, onChanged]);
+  }, [eventId, onChanged]);
 
-  useEffect(() => { if (eventId && !readOnly) void reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (eventId) void reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (mode === "edit") {
     return (
@@ -51,14 +51,17 @@ export function EventDrawer({ eventId, initial, venues, readOnly, ownerId, focus
   if (!event) return <Modal title="Event" onClose={onClose}>{error ? <p role="alert" className="error">{error}</p> : <p>Loading…</p>}</Modal>;
 
   const price = priceLabel(event);
+  const tagged = !!event.tagged;
+  const taggers = (event.taggedBy ?? []).map((t) => t.name ?? t.email ?? "a friend");
   return (
     <Modal
       title={event.title}
       onClose={onClose}
       wide
-      actions={!readOnly ? <button className="btn small" onClick={() => setMode("edit")}>Edit</button> : undefined}
+      actions={!tagged ? <button className="btn small" onClick={() => setMode("edit")}>Edit</button> : undefined}
     >
       <div className="detail">
+        {tagged && taggers.length > 0 && <p className="muted small">{taggers.join(", ")} tagged you in this show. Only they can change its details. Your RSVP, score and photos are yours.</p>}
         <p className="lead">{dateLabel(event.date, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · {timeLabel(event)}</p>
         {event.venue ? (
           <p>
@@ -88,18 +91,18 @@ export function EventDrawer({ eventId, initial, venues, readOnly, ownerId, focus
         {event.notes && <p className="note">{event.notes}</p>}
       </div>
 
-      <LineupSection event={event} readOnly={readOnly} onSaved={onChanged} />
+      <LineupSection event={event} onSaved={onChanged} />
 
-      <PlaylistsSection event={event} readOnly={readOnly} />
+      <PlaylistsSection event={event} readOnly={tagged} />
 
-      <SetlistSection event={event} readOnly={readOnly} onUpdated={(e) => { setEvent(e); onChanged(); }} />
+      <SetlistSection event={event} readOnly={tagged} onUpdated={(e) => { setEvent(e); onChanged(); }} />
 
-      {(!readOnly ? event.past : !!ownerId) && <PhotosSection event={event} ownerId={readOnly ? ownerId : undefined} readOnly={readOnly} scrollTo={focus === "photos"} onChange={onChanged} />}
+      {tagged && (event.taggedBy ?? []).map((t) => <PhotosSection key={t.id} event={event} ownerId={t.id} readOnly sharedBy={t.name ?? t.email} />)}
+      {event.past && <PhotosSection event={event} scrollTo={focus === "photos"} onChange={onChanged} />}
 
-      {!readOnly && <RsvpPanel event={event} onChanged={reload} />}
-      {readOnly && event.rsvp && <p className="panel">Status: <strong>{event.rsvp.status}</strong>{event.rsvp.companions?.length ? ` · with ${event.rsvp.companions.join(", ")}` : ""}</p>}
+      <RsvpPanel event={event} onChanged={reload} tagged={tagged} />
 
-      {!readOnly && (
+      {!tagged && (
         <div className="actions">
           <button className="btn danger" onClick={async () => {
             if (!confirm(`Delete “${event.title}”? Its RSVP and calendar entry are removed too.`)) return;

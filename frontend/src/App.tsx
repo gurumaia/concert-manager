@@ -11,7 +11,6 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { PublicReviewPage } from "./pages/PublicReviewPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { SharedPage } from "./pages/SharedPage";
 import { VenuesPage } from "./pages/VenuesPage";
 import type { EventView, VenueRow } from "./types";
 
@@ -19,7 +18,6 @@ const NAV = [
   { path: "/", label: "Shows" },
   { path: "/history", label: "History" },
   { path: "/review", label: "Recap" },
-  { path: "/shared", label: "Shared with me" },
   { path: "/venues", label: "Venues" },
   { path: "/settings", label: "Settings" },
 ];
@@ -111,7 +109,7 @@ function Shell({ path, go, cfg }: { path: string; go: (to: string) => void; cfg:
 
   useEffect(() => { void reload(); op<{ email?: string; name?: string }>("whoami").then(setMe).catch(() => undefined); }, [reload]);
 
-  const route = path.split("?")[0]!;
+  const route = path.split("?")[0] === "/shared" ? "/" : path.split("?")[0]!; // "Shared with me" is gone: shows you were tagged on are in your own lists
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
@@ -128,7 +126,6 @@ function Shell({ path, go, cfg }: { path: string; go: (to: string) => void; cfg:
         {route === "/" && <EventsPage events={events} venues={venues} reload={reload} error={error} loading={loading} />}
         {route === "/history" && <HistoryPage venues={venues} reload={reload} />}
         {route === "/review" && <ReviewPage />}
-        {route === "/shared" && <SharedPage />}
         {route === "/venues" && <VenuesPage venues={venues} reload={reload} />}
         {route === "/settings" && <SettingsPage me={me} />}
         {!NAV.some((n) => n.path === route) && <p>Page not found. <a href="/" onClick={(e) => { e.preventDefault(); go("/"); }}>Back to shows</a></p>}

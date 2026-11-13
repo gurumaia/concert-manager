@@ -5,6 +5,7 @@ import { useBlockStrayFileDrops } from "../usePhotoDrop";
 import { EventCard } from "../components/EventCard";
 import { EventDrawer } from "../components/EventDrawer";
 import { GenreChips, type GenreOption } from "../components/GenreChips";
+import { TagLosses } from "../components/TagLosses";
 import { dateLabel, genreHue, isNewEvent, monthKey, monthLabel, NEW_WINDOW_DAYS } from "../format";
 import type { EventView, VenueRow } from "../types";
 
@@ -184,6 +185,7 @@ export function EventsPage({ events, venues, reload, error, loading, embed }: {
         </div>
       </div>
 
+      {!embed && <TagLosses onChanged={() => void reload()} />}
       {(error || quickError) && <p role="alert" className="error">{error ?? quickError}</p>}
       {notice && <p role="status" className="notice">{notice}</p>}
       {last && (

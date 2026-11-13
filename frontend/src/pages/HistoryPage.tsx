@@ -321,7 +321,7 @@ function PersonEmail({ person, onSaved }: { person: Person; onSaved: () => void 
           {person.email && <button type="button" className="btn" disabled={busy} onClick={() => void save(null)}>Remove email</button>}
         </span>
       </label>
-      <p className="muted small">Applies to every show with {person.name}, past and upcoming. They see those shows and their photos under “Shared with me” when they sign in with this email, now or later.</p>
+      <p className="muted small">Applies to every show with {person.name}, past and upcoming. They see those shows and their photos in their own list when they sign in with this email, now or later.</p>
       {msg && <p role="status" className="ok small">{msg}</p>}
       {error && <p role="alert" className="error small">{error}</p>}
     </form>

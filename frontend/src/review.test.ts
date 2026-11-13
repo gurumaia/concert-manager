@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDeck, rangeLabel, slideDuration, slideImages, type Slide } from "./review";
+import { buildDeck, firstScreenImages, rangeLabel, slideDuration, slideImages, type Slide } from "./review";
 import type { ReviewData, ReviewShow } from "./types";
 
 const photo = (id: string) => ({ id, url: `/${id}.jpg`, thumbUrl: `/${id}-t.jpg` });
@@ -115,5 +115,15 @@ describe("slideImages", () => {
     expect(slideImages({ kind: "gallery", pics: [pic("d"), pic("e")] })).toEqual(["/d.jpg", "/e.jpg"]);
     expect(slideImages({ kind: "best", title: "", score: 1, when: "", pics: [pic("f")] })).toEqual(["/f.jpg"]);
     expect(slideImages({ kind: "outro", range: "", count: 1, photos: 0 })).toEqual([]);
+  });
+});
+
+describe("firstScreenImages", () => {
+  const pic = (id: string) => ({ ...photo(id), label: "" });
+  it("a collage loads every picture it draws, a slideshow loads its first photo and the ones it loads ahead", () => {
+    const five = ["a", "b", "c", "d", "e"].map(pic);
+    expect(firstScreenImages({ kind: "collage", pics: five.slice(0, 4), more: 1 })).toEqual(["/a-t.jpg", "/b-t.jpg", "/c-t.jpg", "/d-t.jpg"]);
+    expect(firstScreenImages({ kind: "gallery", pics: five })).toEqual(["/a.jpg", "/b.jpg", "/c.jpg"]);
+    expect(firstScreenImages({ kind: "outro", range: "", count: 1, photos: 0 })).toEqual([]);
   });
 });

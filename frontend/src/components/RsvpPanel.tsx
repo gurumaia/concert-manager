@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { op } from "../api";
 import { money, statusLabel, tierLabel } from "../format";
-import { peopleOf, type Person } from "../history";
+import { chipOf, peopleOf, type Person } from "../history";
 import { PeopleInput } from "./PeopleInput";
 import type { EventView, RsvpStatus, SyncResult } from "../types";
 
@@ -17,19 +17,26 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
   const [companions, setCompanions] = useState<string[]>(r?.companions ?? []);
   const [people, setPeople] = useState<Person[]>([]);
   const [notes, setNotes] = useState(r?.notes ?? "");
-  const [shareEmail, setShareEmail] = useState("");
   const [msg, setMsg] = useState<{ warnings: string[]; calendar?: SyncResult }>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const n = (s: string) => (s.trim() === "" ? undefined : Number(s.replace(",", ".")));
 
   // Suggestions are only a convenience, so a failed lookup just leaves the box without them.
+  const loadPeople = useCallback(async () => {
+    try {
+      const [res, dir] = await Promise.all([
+        op<{ events: EventView[] }>("list_events", { rsvp: "any", limit: 500, sort: "desc" }),
+        op<Array<{ key: string; name: string; email?: string }>>("list_people"),
+      ]);
+      return peopleOf(res.events, Array.isArray(dir) ? dir : []);
+    } catch { return undefined; }
+  }, []);
   useEffect(() => {
     let live = true;
-    op<{ events: EventView[] }>("list_events", { rsvp: "any", limit: 500, sort: "desc" })
-      .then((res) => { if (live) setPeople(peopleOf(res.events)); }, () => {});
+    void loadPeople().then((p) => { if (live && p) setPeople(p); });
     return () => { live = false; };
-  }, []);
+  }, [loadPeople]);
 
   async function run(fn: () => Promise<void>) {
     setBusy(true); setError(undefined);
@@ -43,9 +50,14 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
       companions, notes: notes.trim() || undefined,
     });
     setMsg({ warnings: res.warnings, calendar: res.calendar });
+    setCompanions(res.rsvp.companions ?? []);
+    const p = await loadPeople(); if (p) setPeople(p); // the emails just linked
     onChanged();
   });
 
+  // Emails shared before "Going with" could carry them: still listed, so they can be removed.
+  const linked = new Set([...companions, ...(r?.companions ?? [])].map((c) => chipOf(c, people).email).filter(Boolean));
+  const sharedOnly = (r?.sharedWith ?? []).filter((e) => !linked.has(e));
   const showTicketFields = r?.status === "going";
   // Going to a show that is over means you went, so the buttons say so; skipping it is how you say you did not.
   const past = !!event.past;
@@ -89,19 +101,19 @@ export function RsvpPanel({ event, onChanged }: { event: EventView; onChanged: (
           </div>
           {r.pricePaid !== undefined && <p className="muted small">Total paid {money(r.pricePaid + (r.feesPaid ?? 0), event.currency)}{r.feesPaid ? ` (${money(r.feesPaid, event.currency)} fees)` : ""}</p>}
 
-          <h4>Share</h4>
-          <p className="muted small">People you share with see this show under “Shared with me” when they sign in with that email.</p>
-          <ul className="chips">
-            {r.sharedWith.map((e) => (
-              <li key={e} className="chip">{e}
-                <button aria-label={`Stop sharing with ${e}`} className="icon-btn" onClick={() => run(async () => { await op("unshare_rsvp", { eventId: event.id, emails: [e] }); onChanged(); })}>×</button>
-              </li>
-            ))}
-          </ul>
-          <form className="row" onSubmit={(ev) => { ev.preventDefault(); if (!shareEmail) return; void run(async () => { await op("share_rsvp", { eventId: event.id, emails: [shareEmail] }); setShareEmail(""); onChanged(); }); }}>
-            <input type="email" aria-label="Email to share with" placeholder="name@example.com" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} />
-            <button className="btn" disabled={busy || !shareEmail}>Share</button>
-          </form>
+          {sharedOnly.length > 0 && (
+            <div className="people">
+              <span className="people-label">Also shared with</span>
+              <ul className="chips">
+                {sharedOnly.map((e) => (
+                  <li key={e} className="chip linked">{e}
+                    <button aria-label={`Stop sharing with ${e}`} className="icon-btn" onClick={() => run(async () => { await op("unshare_rsvp", { eventId: event.id, emails: [e] }); onChanged(); })}>×</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="muted small">People with an email see this show, and its photos, under “Shared with me” when they sign in with it, now or later. Add one by typing it, or with “+ email” on a name.</p>
         </div>
       )}
     </section>

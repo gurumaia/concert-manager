@@ -126,7 +126,7 @@ export const RsvpInput = z.object({
   quantity: z.number().int().positive().optional().describe("Number of tickets"),
   pricePaid: z.number().nonnegative().optional().describe("Total ticket price paid, without fees"),
   feesPaid: z.number().nonnegative().optional(),
-  companions: z.array(z.string()).optional().describe("Who is going along"),
+  companions: z.array(z.string()).optional().describe("Who is going along. A name (\"Ana\"), or \"Ana <ana@example.com>\", or a bare email. With an email the person is linked: this show, and its photos, are shared with that email (they see it under \"shared with me\", now or after they sign up), and Ana's email is remembered for every show with Ana."),
   notes: z.string().optional(),
   score: z.number().min(0).max(10).multipleOf(0.5).nullable().optional()
     .describe("How good the show was overall, 0-10 in steps of 0.5. Only for shows already attended (going + past date). null clears it"),
@@ -145,6 +145,9 @@ export type Rsvp = Omit<RsvpInput, "score" | "actScores"> & {
   createdAt: string;
   updatedAt: string;
 };
+
+/** Someone the user goes to shows with. `key` is the folded name; an email links them to an account (now or later). */
+export type Person = { key: string; name: string; email?: string };
 
 export { Email };
 

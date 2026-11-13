@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALONE, addCompanions, suggestPeople, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, summarize, withWho } from "./history";
+import { ALONE, addCompanions, chipOf, parseCompanion, suggestPeople, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, summarize, withWho } from "./history";
 import type { EventView } from "./types";
 
 let n = 0;
@@ -107,5 +107,28 @@ describe("renamed venues", () => {
   it("search finds a show by any name the venue has had", () => {
     expect(matches(events[1]!, "credicard")).toBe(true);
     expect(matches(events[0]!, "vibra")).toBe(true);
+  });
+});
+
+describe("linking people to emails", () => {
+  const people = [{ key: "ana", name: "Ana", count: 2, email: "ana@x.com" }, { key: "bruno", name: "Bruno", count: 1 }];
+  it("reads names, 'Name <email>' and bare emails (an email you linked before is that person)", () => {
+    expect(parseCompanion("  Ana  Souza ")).toEqual({ name: "Ana Souza" });
+    expect(parseCompanion("Ana <ANA@x.com>")).toEqual({ name: "Ana", email: "ana@x.com" });
+    expect(parseCompanion("ana@x.com", people)).toEqual({ name: "Ana", email: "ana@x.com" });
+    expect(parseCompanion("maria_lima@x.com")).toEqual({ name: "Maria lima", email: "maria_lima@x.com" });
+    expect(parseCompanion("  ")).toBeUndefined();
+  });
+  it("addCompanions keeps one entry per person, whichever way it was typed", () => {
+    expect(addCompanions(["Ana"], "ana@x.com, Bruno <b@x.com>, bruno", people)).toEqual(["Ana", "Bruno <b@x.com>"]);
+  });
+  it("chipOf says whether an entry is linked, and whether the email is still unsaved", () => {
+    expect(chipOf("Ana", people)).toMatchObject({ name: "Ana", email: "ana@x.com", pending: false });
+    expect(chipOf("Bruno <b@x.com>", people)).toMatchObject({ email: "b@x.com", pending: true });
+    expect(chipOf("Bruno", people).email).toBeUndefined();
+  });
+  it("peopleOf attaches emails from the directory", () => {
+    const ev = [{ rsvp: { companions: ["Ana"] } }] as any;
+    expect(peopleOf(ev, [{ key: "ana", name: "Ana", email: "ana@x.com" }])[0]?.email).toBe("ana@x.com");
   });
 });

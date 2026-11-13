@@ -72,7 +72,7 @@ describe("HistoryPage", () => {
     }));
     render(<HistoryPage venues={[]} reload={vi.fn()} />);
     await screen.findByText("Shows I've been to");
-    expect(calls.map((c) => c.offset)).toEqual([0, 500]);
+    expect(calls.filter((c) => "offset" in c).map((c) => c.offset)).toEqual([0, 500]); // (the people list is fetched too)
     expect(screen.getAllByRole("button", { name: /^Band \d, .*Open details/ })).toHaveLength(3);
   });
 
@@ -139,4 +139,26 @@ describe("HistoryPage", () => {
     expect(screen.queryByRole("region", { name: "Recent shows to confirm" })).toBeNull();
     localStorage.clear();
   });
+
+  it("links the chosen person to an email once, for every show with them", async () => {
+    const calls: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/config") return new Response(JSON.stringify({ devAuth: true }));
+      const name = url.split("/").pop(); const body = JSON.parse(String(init?.body)); calls.push({ name, body });
+      const result = name === "list_people" ? [] : name === "set_person_email" ? { shows: 2, person: { key: "ana", name: "Ana", email: body.email } } : { total: EVENTS.length, events: EVENTS };
+      return new Response(JSON.stringify({ ok: true, result }));
+    }));
+    render(<HistoryPage venues={[]} reload={vi.fn()} />);
+    await screen.findByText("Shows I've been to");
+    expect(screen.queryByLabelText("Ana’s email")).toBeNull(); // only once a person is chosen
+    fireEvent.click(within(screen.getByRole("region", { name: "Who I went with" })).getByRole("button", { name: "Ana, 2 shows" }));
+    const input = screen.getByLabelText("Ana’s email");
+    fireEvent.change(input, { target: { value: "not an email" } });
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "Ana@X.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText(/2 shows with Ana shared with ana@x.com/);
+    expect(calls.find((c) => c.name === "set_person_email")?.body).toEqual({ name: "Ana", email: "Ana@X.com" });
+  });
 });
+

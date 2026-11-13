@@ -99,10 +99,10 @@ export function companionsOf(e: Pick<EventView, "rsvp">): Array<{ key: string; n
   return [...seen].map(([key, name]) => ({ key, name }));
 }
 
-export type Person = { key: string; name: string; count: number };
+export type Person = { key: string; name: string; count: number; /** Linked account email: their shows with you are shared with it. */ email?: string };
 
 /** Everyone you went with, most shows first. Shown with the spelling you used most ("Ana" over "ana"), capitalised ones winning ties. */
-export function peopleOf(events: EventView[]): Person[] {
+export function peopleOf(events: EventView[], directory: Array<{ key: string; name?: string; email?: string }> = []): Person[] {
   const m = new Map<string, { count: number; spellings: Map<string, number> }>();
   for (const e of events) for (const c of companionsOf(e)) {
     const p = m.get(c.key) ?? { count: 0, spellings: new Map() };
@@ -110,20 +110,43 @@ export function peopleOf(events: EventView[]): Person[] {
     m.set(c.key, p);
   }
   const upper = (n: string) => (n[0] === n[0]!.toUpperCase() && n[0] !== n[0]!.toLowerCase() ? 1 : 0);
+  const email = new Map(directory.map((d) => [d.key, d.email]));
   return [...m].map(([key, p]) => ({
-    key, count: p.count,
+    key, count: p.count, ...(email.get(key) ? { email: email.get(key) } : {}),
     name: [...p.spellings].sort((a, b) => b[1] - a[1] || upper(b[0]) - upper(a[0]) || a[0].localeCompare(b[0]))[0]![0],
   })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+export const EMAIL_RE = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
+
+/** What was typed in "Going with": "Ana", "Ana <ana@x.com>" or "ana@x.com" (an email already linked to someone is that person). Same reading as the server. */
+export function parseCompanion(raw: string, people: Array<Pick<Person, "name" | "email">> = []): { name: string; email?: string } | undefined {
+  const s = raw.trim().replace(/\s+/g, " ");
+  if (!s) return undefined;
+  const shaped = s.match(/^(.*?)\s*<\s*([^<>\s@,]+@[^<>\s@,]+)\s*>$/);
+  const email = (shaped?.[2] ?? (EMAIL_RE.test(s) ? s : undefined))?.toLowerCase();
+  if (!email) return { name: s };
+  const local = email.split("@")[0]!.replace(/[._-]+/g, " ");
+  const name = shaped?.[1]?.trim() || people.find((p) => p.email === email)?.name || local.charAt(0).toUpperCase() + local.slice(1);
+  return { name, email };
+}
+
+/** One entry of the list as shown: the name, and the email it is (or is about to be) linked to. */
+export function chipOf(entry: string, people: Array<Pick<Person, "key" | "email">> = []): { key: string; name: string; email?: string; pending: boolean } {
+  const p = parseCompanion(entry, people as Person[]) ?? { name: entry };
+  const key = personKey(p.name);
+  const known = people.find((x) => x.key === key)?.email;
+  return { key, name: p.name, email: p.email ?? known, pending: !!p.email && p.email !== known };
+}
+
 /** Adds typed names to a Going-with list. Commas split ("Ana, Bruno" pasted at once); a name already on the list in any spelling is skipped. */
-export function addCompanions(list: string[], raw: string): string[] {
+export function addCompanions(list: string[], raw: string, people: Array<Pick<Person, "name" | "email">> = []): string[] {
   const out = [...list];
-  const keys = new Set(out.map(personKey));
+  const keys = new Set(out.map((e) => personKey(parseCompanion(e, people)?.name ?? e)));
   for (const part of raw.split(",")) {
-    const name = part.trim().replace(/\s+/g, " ");
-    const key = personKey(name);
-    if (key && !keys.has(key)) { keys.add(key); out.push(name); }
+    const p = parseCompanion(part, people);
+    const key = p && personKey(p.name);
+    if (p && key && !keys.has(key)) { keys.add(key); out.push(p.email ? `${p.name} <${p.email}>` : p.name); }
   }
   return out;
 }

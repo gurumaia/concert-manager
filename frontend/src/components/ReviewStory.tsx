@@ -14,7 +14,7 @@ const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0
 const isYear = (range: string) => /^\d{4}$/.test(range);
 const PAPER = "#f3eadb";
 // Starts loading the handwriting as soon as the story's code arrives, before the first slide asks for it.
-if (typeof document !== "undefined") void document.fonts?.load?.('1em "Kalam"');
+if (typeof document !== "undefined") void document.fonts?.load?.('1em "Nothing You Could Do"');
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**

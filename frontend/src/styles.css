@@ -458,8 +458,8 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
   background: var(--paper) radial-gradient(rgba(120, 90, 50, .09) 1px, transparent 1px) 0 0 / 14px 14px; color: var(--ink);
 }
 @media (min-width: 600px) { .rv { --h: min(92dvh, 860px); border-radius: 22px; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); } }
-/* Kalam is bundled (reviewFont.css); the rest is only what shows for a moment while it loads. */
-.rv-hand { font-family: "Kalam", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive; }
+/* Nothing You Could Do is bundled (reviewFont.css); the rest is only what shows for a moment while it loads, or for a letter it does not have. */
+.rv-hand { font-family: "Nothing You Could Do", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive; }
 .rv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
 .rv-bars { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; gap: 4px; z-index: 5; }
 .rv-bars i { flex: 1; height: 3px; border-radius: 2px; background: rgba(43, 33, 24, .2); position: relative; overflow: hidden; }
@@ -484,7 +484,7 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv h2 { margin: 0; font-weight: 400; }
 .rv-lead { font-size: 7cqw; line-height: 1.15; }
 .rv-line { font-size: 7cqw; line-height: 1.2; margin: 0; }
-.rv-faint { font-size: 4.6cqw; opacity: .7; margin: 0; }
+.rv-faint { font-size: 5.4cqw; opacity: .7; margin: 0; }
 .rv-red { color: var(--red); }
 .rv-big { font-size: 50cqw; font-weight: 900; line-height: .85; letter-spacing: -.03em; }
 .rv-word { font-size: 15cqw; font-weight: 900; line-height: .95; letter-spacing: -.02em; max-width: 100%; overflow-wrap: anywhere; }
@@ -497,7 +497,7 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 3cqw; width: 100%; }
 .rv-rank li { display: flex; gap: 4cqw; align-items: center; font-size: 7cqw; }
 .rv-rank b { font-size: 11cqw; line-height: 1; color: var(--red); }
-.rv-rank small { display: block; font-size: 4.2cqw; opacity: .7; }
+.rv-rank small { display: block; font-size: 5cqw; opacity: .7; }
 .rv-chart { display: flex; gap: 1.5cqw; align-items: stretch; height: 24cqw; width: 100%; margin-top: 2cqw; }
 .rv-chart span { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 1cqw; font-size: 3.4cqw; font-weight: 700; }
 .rv-chart i { display: block; width: 100%; background: rgba(43, 33, 24, .25); border-radius: 2px; }
@@ -509,7 +509,7 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-sticker.s1 { background: #ffe27a; } .rv-sticker.s2 { background: #bfe3c8; }
 .rv-pol { position: relative; margin: 0; background: #fff; padding: 2cqw 2cqw 0; box-shadow: 0 3px 10px rgba(60, 40, 10, .3); transform: rotate(var(--rot, 0deg)); }
 .rv-pol img, .rv-pic-missing { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #e6dccb; }
-.rv-pol figcaption { padding: 1.5cqw 0 2cqw; text-align: center; font-size: 3.8cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-pol figcaption { padding: 1.5cqw 0 2cqw; text-align: center; font-size: 4.6cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rv-pol.small { width: 36cqw; align-self: flex-end; }
 .rv-tape { position: absolute; top: -2.4cqw; left: 50%; margin-left: -9cqw; width: 18cqw; height: 5cqw; background: rgba(240, 200, 90, .78); transform: rotate(-4deg); }
 /* minmax(0, 1fr), not 1fr: a long one-line caption must not widen its column past the screen. */

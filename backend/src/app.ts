@@ -55,6 +55,13 @@ export function createApp(d: AppDeps) {
     return c.redirect(url, 302);
   });
 
+  // Public year in review: unguessable token, no sign-in. Never cached, because it follows the owner's current shows and photos.
+  app.get("/api/public/review/:token", async (c) => {
+    const data = await d.svc.publicReview(c.req.param("token")).catch(() => undefined);
+    if (!data) return c.json({ ok: false, error: "Not found" }, 404, { "cache-control": "no-store" });
+    return c.json({ ok: true, result: data }, 200, { "cache-control": "no-store" });
+  });
+
   if (d.devStore) {
     const store = d.devStore;
     app.put("/api/dev-store/:id", async (c) => {

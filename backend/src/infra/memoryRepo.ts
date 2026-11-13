@@ -1,5 +1,6 @@
 import type { OAuthState, Repo } from "../domain/repo.js";
 import type { Photo, PhotoRef } from "../domain/photos.js";
+import type { ReviewLink } from "../domain/review.js";
 import type { Rsvp, ShowEvent, UserProfile, Venue } from "../domain/schemas.js";
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -65,6 +66,12 @@ export class MemoryRepo implements Repo {
     for (const [k, p] of this.photos) if (p.publicToken === token) return { ownerId: k.slice(0, k.indexOf("#")), eventId: p.eventId, photoId: p.id };
     return undefined;
   }
+
+  reviews = new Map<string, ReviewLink>(); // key: token
+  async putReview(_u: string, link: ReviewLink) { this.reviews.set(link.token, clone(link)); }
+  async listReviews(u: string) { return [...this.reviews.values()].filter((r) => r.ownerId === u).map((r) => clone(r)); }
+  async deleteReview(u: string, token: string) { if (this.reviews.get(token)?.ownerId === u) this.reviews.delete(token); }
+  async findReview(token: string) { const r = this.reviews.get(token); return r && clone(r); }
 
   temps = new Map<string, { value: unknown; expiresAt: number }>();
   async putTemp(key: string, value: unknown, expiresAt: number) { this.temps.set(key, { value: clone(value), expiresAt }); }

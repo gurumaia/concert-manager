@@ -2,21 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 import { op } from "../api";
 import { EventDrawer } from "../components/EventDrawer";
 import { Icon } from "../components/Icon";
+import { loadAttended } from "../attended";
 import { dateLabel, genreHue } from "../format";
 import { ALONE, companionsOf, groupByYear, headliner, lastYearStart, matches, peopleOf, personHue, summarize, withWho, type Person, type Ranked } from "../history";
 import type { EventView, VenueRow } from "../types";
 import { useBlockStrayFileDrops, usePhotoDrop } from "../usePhotoDrop";
-
-const PAGE = 500; // list_events returns at most 500 at a time
-
-async function loadAttended(): Promise<EventView[]> {
-  const all: EventView[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const r = await op<{ total: number; events: EventView[] }>("list_events", { rsvp: "attended", sort: "desc", limit: PAGE, offset });
-    all.push(...r.events);
-    if (offset + PAGE >= r.total || !r.events.length) return all;
-  }
-}
 
 const NUDGE_DAYS = 14;
 const NUDGE_KEY = "history-confirmed";

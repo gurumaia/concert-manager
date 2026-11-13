@@ -38,6 +38,7 @@ const TriageInput = {
 export function buildMcpServer(svc: Service, ctx: Ctx, opts: McpOptions = {}): McpServer {
   const server = new McpServer({ name: "show-manager", version: "0.1.0" }, { instructions: INSTRUCTIONS });
   for (const o of ops) {
+    if (o.uiOnly) continue;
     server.registerTool(
       o.name,
       {

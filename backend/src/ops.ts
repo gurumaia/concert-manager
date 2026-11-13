@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EventInput, DateStr, RsvpInput, RsvpStatus, SaleStatus, SetlistInput, VenueInput } from "./domain/schemas.js";
+import { ReviewRecipe } from "./domain/review.js";
 import type { Ctx, Service } from "./domain/service.js";
 
 /**
@@ -12,6 +13,8 @@ export type Op = {
   description: string;
   input: z.ZodObject<any>;
   readOnly?: boolean;
+  /** Only for the web app: not offered as an MCP tool. */
+  uiOnly?: boolean;
   destructive?: boolean;
   run: (svc: Service, ctx: Ctx, input: any) => Promise<unknown>;
 };
@@ -344,6 +347,31 @@ export const ops: Op[] = [
     description: "Forget the Google connection. With removeEvents=true also deletes the calendar entries this app created.",
     input: z.object({ removeEvents: z.boolean().optional() }),
     run: (s, c, i) => s.calendarDisconnect(c, i),
+  }),
+  // ---- year in review (web app only)
+  op({
+    name: "year_review", title: "Year in review", readOnly: true, uiOnly: true,
+    description: "The shows you attended in a date range (optionally only with certain people), with photos, for the year-in-review screen.",
+    input: ReviewRecipe,
+    run: (s, c, i) => s.yearReview(c, i),
+  }),
+  op({
+    name: "create_review_link", title: "Share a year in review", uiOnly: true,
+    description: "Create a public, unlisted link to a year in review. Anyone with the link can see it; it shows the current photos of the matching shows.",
+    input: ReviewRecipe.extend({ showNames: z.boolean().default(false).describe("Show the names of the people you went with") }),
+    run: (s, c, { showNames, ...recipe }) => s.createReviewLink(c, recipe, showNames),
+  }),
+  op({
+    name: "list_review_links", title: "List shared reviews", readOnly: true, uiOnly: true,
+    description: "Your shared year-in-review links.",
+    input: z.object({}),
+    run: (s, c) => s.listReviewLinks(c),
+  }),
+  op({
+    name: "revoke_review_link", title: "Stop sharing a review", destructive: true, uiOnly: true,
+    description: "Revoke a shared year-in-review link; it stops working immediately.",
+    input: z.object({ token: id }),
+    run: (s, c, i) => s.revokeReviewLink(c, i.token),
   }),
 ];
 

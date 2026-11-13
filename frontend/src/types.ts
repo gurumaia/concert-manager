@@ -18,3 +18,4 @@ export type Stats = {
   upcomingGoing: number;
   undecidedUpcoming: number;
 };
+export type { ReviewData, ReviewLink, ReviewPhoto, ReviewRecipe, ReviewShow } from "../../backend/src/domain/review";

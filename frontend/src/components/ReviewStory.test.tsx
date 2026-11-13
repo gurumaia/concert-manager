@@ -115,6 +115,31 @@ describe("ReviewStory", () => {
     expect(new Set(previews)).toEqual(new Set(["/q1-t.jpg", "/q2-t.jpg", "/q3-t.jpg", "/q4-t.jpg"]));
   });
 
+  describe("full screen", () => {
+    const enable = (on: boolean) => Object.defineProperty(document, "fullscreenEnabled", { value: on, configurable: true });
+    afterEach(() => { enable(false); Object.defineProperty(document, "fullscreenElement", { value: null, configurable: true }); });
+
+    it("has no button where the browser cannot do it (iPhone Safari)", () => {
+      enable(false);
+      render(<ReviewStory data={DATA} today={TODAY} />);
+      expect(screen.queryByLabelText("Full screen")).toBeNull();
+    });
+
+    it("the button asks the story to fill the screen, and a phone's Play can ask for it by itself", () => {
+      enable(true);
+      const request = vi.fn(() => Promise.resolve());
+      (HTMLElement.prototype as unknown as { requestFullscreen: unknown }).requestFullscreen = request;
+      const { unmount } = render(<ReviewStory data={DATA} today={TODAY} />);
+      fireEvent.click(screen.getByLabelText("Full screen"));
+      expect(request).toHaveBeenCalledTimes(1);
+      unmount();
+      request.mockClear();
+      render(<ReviewStory data={DATA} today={TODAY} fullscreenOnStart />);
+      expect(request).toHaveBeenCalledTimes(1);
+      delete (HTMLElement.prototype as unknown as { requestFullscreen?: unknown }).requestFullscreen;
+    });
+  });
+
   it("stops on the last slide, and keys and the close button work", () => {
     const close = vi.fn();
     render(<ReviewStory data={DATA} today={TODAY} onClose={close} />);

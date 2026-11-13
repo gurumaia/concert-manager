@@ -458,7 +458,8 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
   background: var(--paper) radial-gradient(rgba(120, 90, 50, .09) 1px, transparent 1px) 0 0 / 14px 14px; color: var(--ink);
 }
 @media (min-width: 600px) { .rv { --h: min(92dvh, 860px); border-radius: 22px; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); } }
-.rv-hand { font-family: "Bradley Hand", "Segoe Print", "Chalkboard SE", "Comic Sans MS", cursive; }
+/* Kalam is bundled (reviewFont.css); the rest is only what shows for a moment while it loads. */
+.rv-hand { font-family: "Kalam", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive; }
 .rv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
 .rv-bars { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; gap: 4px; z-index: 5; }
 .rv-bars i { flex: 1; height: 3px; border-radius: 2px; background: rgba(43, 33, 24, .2); position: relative; overflow: hidden; }

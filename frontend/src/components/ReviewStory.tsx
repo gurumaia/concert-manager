@@ -292,6 +292,8 @@ function Polaroid({ pic, src, rot, small, tail = "" }: { pic: Pic; src: string; 
 }
 
 let canvas: CanvasRenderingContext2D | null | undefined;
+/** For tests: forget the remembered canvas, so a test can supply its own. */
+export const resetMeasurer = () => { canvas = undefined; };
 const measurer = (): CanvasRenderingContext2D | null => {
   if (canvas === undefined) { try { canvas = document.createElement("canvas").getContext("2d"); } catch { canvas = null; } }
   return canvas;
@@ -303,7 +305,8 @@ const measurer = (): CanvasRenderingContext2D | null => {
  */
 function FitLine({ text, suffix }: { text: string; suffix: string }) {
   const el = useRef<HTMLElement>(null);
-  const [fit, setFit] = useState<FittedCaption>();
+  const [fit, setFit] = useState<{ key: string; f: FittedCaption }>();
+  const key = text + "\u0000" + suffix;
   useLayoutEffect(() => {
     const node = el.current;
     const ctx = measurer();
@@ -312,16 +315,26 @@ function FitLine({ text, suffix }: { text: string; suffix: string }) {
       const cs = getComputedStyle(node);
       const width = node.clientWidth;
       if (!width) return;
-      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-      setFit(fitCaption(text, suffix, width, (s) => ctx.measureText(s).width));
+      // The text is always measured at its normal size. What is on screen may already be shrunk (data-scale), so undo that first;
+      // measuring the shrunk size would make the next pass think there is room, and the caption would flip between two sizes.
+      const shown = Number(node.dataset.scale) || 1;
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${parseFloat(cs.fontSize) / shown}px ${cs.fontFamily}`;
+      const f = fitCaption(text, suffix, width - 1, (t) => ctx.measureText(t).width);
+      setFit((old) => (old && old.key === key && old.f.text === f.text && old.f.scale === f.scale ? old : { key, f }));
     };
     run();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(run) : undefined;
     ro?.observe(node);
     void document.fonts?.ready.then(run);
     return () => ro?.disconnect();
-  }, [text, suffix]);
-  return <figcaption ref={el} className="rv-hand" style={fit && fit.scale < 1 ? { fontSize: `calc(5cqw * ${fit.scale})` } : undefined}>{(fit?.text ?? text) + suffix}</figcaption>;
+  }, [text, suffix, key]);
+  const f = fit && fit.key === key ? fit.f : undefined;
+  const scale = f?.scale ?? 1;
+  return (
+    <figcaption ref={el} className="rv-hand" data-scale={scale} data-fit={f ? "" : undefined} style={scale < 1 ? { fontSize: `calc(5cqw * ${scale})` } : undefined}>
+      {(f?.text ?? text) + suffix}
+    </figcaption>
+  );
 }
 
 /** One photo at a time with previous/next arrows and dots. It keeps moving on its own until paused. */

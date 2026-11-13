@@ -177,6 +177,9 @@ export function slideDuration(s: Slide): number {
   return (s.kind === "best" || s.kind === "gallery") && s.pics.length > 1 ? s.pics.length * PHOTO_MS : SLIDE_MS;
 }
 
+/** How many photos ahead of the one on screen a slideshow keeps loaded. */
+export const SLIDESHOW_AHEAD = 2;
+
 /**
  * The pictures a slide shows, in the order they appear, as the URLs the story will request.
  * Small polaroids and the collage show the small preview; the slideshows show the full photo.
@@ -188,4 +191,13 @@ export function slideImages(s: Slide): string[] {
     case "best": case "gallery": return s.pics.map((p) => p.url);
     default: return [];
   }
+}
+
+/**
+ * What a slide needs the moment it appears: every picture it draws at once (the whole collage, the small polaroid),
+ * and for a slideshow the first photo plus the ones it loads ahead of itself.
+ */
+export function firstScreenImages(s: Slide): string[] {
+  const all = slideImages(s);
+  return s.kind === "best" || s.kind === "gallery" ? all.slice(0, 1 + SLIDESHOW_AHEAD) : all;
 }

@@ -107,6 +107,14 @@ describe("ReviewStory", () => {
     expect(requested).toHaveLength(before);
   });
 
+  it("a collage of four is loaded in full before it appears", () => {
+    const shows = [show("A", "2026-01-10", { photos: [photo("q1"), photo("q2")] }), show("B", "2026-02-10", { photos: [photo("q3"), photo("q4")] })];
+    render(<ReviewStory data={{ ...DATA, shows }} today={TODAY} />);
+    const previews = requested.filter((u) => u.endsWith("-t.jpg"));
+    expect(previews).toHaveLength(4);
+    expect(new Set(previews)).toEqual(new Set(["/q1-t.jpg", "/q2-t.jpg", "/q3-t.jpg", "/q4-t.jpg"]));
+  });
+
   it("stops on the last slide, and keys and the close button work", () => {
     const close = vi.fn();
     render(<ReviewStory data={DATA} today={TODAY} onClose={close} />);

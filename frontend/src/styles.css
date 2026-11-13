@@ -499,8 +499,9 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-chart span { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 1cqw; font-size: 3.4cqw; font-weight: 700; }
 .rv-chart i { display: block; width: 100%; background: rgba(43, 33, 24, .25); border-radius: 2px; }
 .rv-chart .hi i { background: var(--red); }
-.rv-stickers { display: flex; flex-wrap: wrap; gap: 4cqw; }
-.rv-sticker { padding: 3cqw 5cqw; border-radius: 999px; font-weight: 800; font-size: 7cqw; box-shadow: 0 2px 5px rgba(0, 0, 0, .2); background: #ffb3b8; }
+.rv-stickers { display: flex; flex-wrap: wrap; gap: 5cqw; max-width: 100%; }
+/* A fixed corner radius, not a full pill: a name that wraps to two lines keeps its text clear of the curve. */
+.rv-sticker { padding: 4.5cqw 8cqw; border-radius: 9cqw; font-weight: 800; font-size: 7cqw; line-height: 1.15; max-width: 100%; box-shadow: 0 2px 5px rgba(0, 0, 0, .2); background: #ffb3b8; }
 .rv-sticker small { display: block; font-size: 3.6cqw; font-weight: 600; opacity: .75; }
 .rv-sticker.s1 { background: #ffe27a; } .rv-sticker.s2 { background: #bfe3c8; }
 .rv-pol { position: relative; margin: 0; background: #fff; padding: 2cqw 2cqw 0; box-shadow: 0 3px 10px rgba(60, 40, 10, .3); transform: rotate(var(--rot, 0deg)); }

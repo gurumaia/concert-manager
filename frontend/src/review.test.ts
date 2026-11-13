@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDeck, rangeLabel, slideDuration, type Slide } from "./review";
+import { buildDeck, rangeLabel, slideDuration, slideImages, type Slide } from "./review";
 import type { ReviewData, ReviewShow } from "./types";
 
 const photo = (id: string) => ({ id, url: `/${id}.jpg`, thumbUrl: `/${id}-t.jpg` });
@@ -96,5 +96,17 @@ describe("rangeLabel", () => {
     expect(rangeLabel("2026-01-01", "2026-12-31")).toBe("2026");
     expect(rangeLabel("2026-03-05", "2026-09-14")).toBe("Mar 5 – Sep 14, 2026");
     expect(rangeLabel("2025-07-01", "2026-06-30")).toBe("Jul 1, 2025 – Jun 30, 2026");
+  });
+});
+
+describe("slideImages", () => {
+  const pic = (id: string) => ({ ...photo(id), label: "" });
+  it("lists what each slide shows: previews for the collage and small polaroids, full photos for slideshows, nothing for text slides", () => {
+    expect(slideImages({ kind: "collage", pics: [pic("a"), pic("b")], more: 0 })).toEqual(["/a-t.jpg", "/b-t.jpg"]);
+    expect(slideImages({ kind: "venue", name: "V", count: 2, withCompany: 0, pic: pic("c") })).toEqual(["/c-t.jpg"]);
+    expect(slideImages({ kind: "artists", top: [] })).toEqual([]);
+    expect(slideImages({ kind: "gallery", pics: [pic("d"), pic("e")] })).toEqual(["/d.jpg", "/e.jpg"]);
+    expect(slideImages({ kind: "best", title: "", score: 1, when: "", pics: [pic("f")] })).toEqual(["/f.jpg"]);
+    expect(slideImages({ kind: "outro", range: "", count: 1, photos: 0 })).toEqual([]);
   });
 });

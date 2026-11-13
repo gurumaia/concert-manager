@@ -511,6 +511,8 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-pol { position: relative; margin: 0; background: #fff; padding: 2cqw 2cqw 0; box-shadow: 0 3px 10px rgba(60, 40, 10, .3); transform: rotate(var(--rot, 0deg)); }
 .rv-pol img, .rv-pic-missing { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #e6dccb; }
 .rv-pol figcaption { padding: 1.5cqw 0 2cqw; text-align: center; font-size: 5cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Once the caption has been fitted by the code, the browser's own "..." must not be added on top of it. */
+.rv-pol figcaption[data-fit] { text-overflow: clip; }
 .rv-pol.small { width: 36cqw; align-self: flex-end; }
 .rv-tape { position: absolute; top: -2.4cqw; left: 50%; margin-left: -9cqw; width: 18cqw; height: 5cqw; background: rgba(240, 200, 90, .78); transform: rotate(-4deg); }
 /* minmax(0, 1fr), not 1fr: a long one-line caption must not widen its column past the screen. */

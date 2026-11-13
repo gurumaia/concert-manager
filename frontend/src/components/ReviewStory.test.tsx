@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ReviewStory } from "./ReviewStory";
+import { ReviewStory, resetMeasurer } from "./ReviewStory";
 import type { ReviewData, ReviewShow } from "../types";
 
 const photo = (id: string) => ({ id, url: `/${id}.jpg`, thumbUrl: `/${id}-t.jpg` });
@@ -17,7 +17,7 @@ const requested: string[] = [];
 class FakeImage { decoding = ""; set src(v: string) { requested.push(v); } decode() { return Promise.resolve(); } }
 
 beforeEach(() => { requested.length = 0; vi.stubGlobal("Image", FakeImage); vi.useFakeTimers(); vi.stubGlobal("matchMedia", () => ({ matches: false })); });
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); resetMeasurer(); });
 const tick = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 const heading = () => screen.getAllByRole("heading", { level: 2 })[0]!.textContent;
 
@@ -138,6 +138,34 @@ describe("ReviewStory", () => {
       expect(request).toHaveBeenCalledTimes(1);
       delete (HTMLElement.prototype as unknown as { requestFullscreen?: unknown }).requestFullscreen;
     });
+  });
+
+  it("a fitted caption stays put when it is measured again (it used to flip between a small and a large size)", () => {
+    // Fake text metrics: each character is half the font size wide, the font is 20px, and the caption line is 450px wide: the 53-character caption needs about 85% of its size.
+    resetMeasurer();
+    const callbacks: Array<() => void> = [];
+    class FakeObserver { constructor(cb: () => void) { callbacks.push(cb); } observe() {} disconnect() {} }
+    vi.stubGlobal("ResizeObserver", FakeObserver);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => {
+      const ctx = { font: "", measureText(t: string) { return { width: t.length * parseFloat(/([\d.]+)px/.exec(ctx.font)![1]!) * 0.5 }; } };
+      return ctx;
+    }) as never);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(function (this: HTMLElement) { return this.tagName === "FIGCAPTION" ? 450 : 0; });
+    vi.spyOn(window, "getComputedStyle").mockImplementation(((el: HTMLElement) => {
+      const f = el.style.fontSize; // "calc(5cqw * 0.84)", which jsdom writes out as "calc(4.2cqw)"; no value at all means the normal 5cqw
+      const scale = /\* ([\d.]+)\)/.test(f) ? Number(/\* ([\d.]+)\)/.exec(f)![1]) : /([\d.]+)cqw/.test(f) ? Number(/([\d.]+)cqw/.exec(f)![1]) / 5 : 1;
+      return { fontStyle: "normal", fontWeight: "400", fontFamily: "x", fontSize: `${20 * scale}px` };
+    }) as never);
+
+    const long = show("Metallica: Life Burns Faster Than Light", "2026-10-15", { score: 10, photos: [photo("m1"), photo("m2")] });
+    render(<ReviewStory data={{ ...DATA, shows: [long, show("B", "2026-02-10")] }} today={TODAY} />);
+    fireEvent.click(screen.getByLabelText("Next slide")); // the slideshow of the best show
+    const caption = () => document.querySelector("figcaption")!;
+    const seen = () => `${caption().textContent} | ${(caption() as HTMLElement).style.fontSize}`;
+    const first = seen();
+    expect(caption().textContent).toBe("Metallica: Life Burns Faster Than Light · Oct · 1 / 2"); // fits when shrunk, so nothing is cut
+    expect((caption() as HTMLElement).style.fontSize).toMatch(/^calc\((4\.2cqw|5cqw \* 0\.84)\)$/); // 84% (jsdom writes the sum out)
+    for (let i = 0; i < 6; i++) { act(() => { callbacks.forEach((cb) => cb()); }); expect(seen()).toBe(first); }
   });
 
   it("stops on the last slide, and keys and the close button work", () => {

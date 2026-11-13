@@ -32,11 +32,9 @@ export function songsOf(raw: RawSetlist): Song[] {
   return out;
 }
 
-const artistMatches = (given: string, found?: string) => {
-  if (!found) return false;
-  const a = norm(given), b = norm(found);
-  return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
-};
+/** Same name, ignoring case, accents, punctuation and a leading "The". Never a partial match: "Justice for the Damned" is not "The Damned". */
+const sameName = (a: string, b: string) => { const strip = (x: string) => norm(x).replace(/^the /, ""); return !!strip(a) && strip(a) === strip(b); };
+const artistMatches = (given: string, found?: string) => !!found && sameName(given, found);
 
 /** Pick the right setlist from the day's candidates: right artist, with songs, preferring the show's city. */
 export function pickSetlist(candidates: RawSetlist[], artist: string, city?: string): FoundSetlist | undefined {
@@ -68,7 +66,10 @@ export function pickRecent(candidates: RawSetlist[], artist: string, limit: numb
 export class SetlistFmGateway implements SetlistGateway {
   private last = 0;
   /** setlist.fm allows about 2 requests per second on a free key; stay under it. */
-  private static MIN_GAP_MS = 600;
+  private static MIN_GAP_MS = 700;
+  /** After a 429 (rate limit) wait and try again this many times, for at most MAX_WAIT_MS each. */
+  private static RETRIES = 3;
+  private static MAX_WAIT_MS = 4000;
   constructor(private apiKey: string, private fetchFn: typeof fetch = fetch, private sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))) {}
 
   private async throttle() {
@@ -77,22 +78,41 @@ export class SetlistFmGateway implements SetlistGateway {
     if (wait > 0) await this.sleep(wait);
   }
 
+  /** One throttled GET. A 429 is retried after its Retry-After (or 1 s, 2 s, 4 s), so a busy moment does not fail the lookup. */
+  private async get(path: string, params: Record<string, string>): Promise<Response> {
+    const url = `https://api.setlist.fm/rest/1.0/${path}?${new URLSearchParams(params)}`;
+    for (let attempt = 0; ; attempt++) {
+      await this.throttle();
+      const res = await this.fetchFn(url, { headers: { "x-api-key": this.apiKey, accept: "application/json", "accept-language": "en" } });
+      if (res.status !== 429 || attempt >= SetlistFmGateway.RETRIES) return res;
+      const asked = Number(res.headers?.get("retry-after"));
+      await this.sleep(Math.min(SetlistFmGateway.MAX_WAIT_MS, Number.isFinite(asked) && asked > 0 ? asked * 1000 : 1000 * 2 ** attempt));
+    }
+  }
+
   async find({ artist, date, city }: { artist: string; date: string; city?: string }) {
-    await this.throttle();
     const [y, m, d] = date.split("-");
-    const url = `https://api.setlist.fm/rest/1.0/search/setlists?${new URLSearchParams({ artistName: artist, date: `${d}-${m}-${y}`, p: "1" })}`;
-    const res = await this.fetchFn(url, { headers: { "x-api-key": this.apiKey, accept: "application/json", "accept-language": "en" } });
+    const res = await this.get("search/setlists", { artistName: artist, date: `${d}-${m}-${y}`, p: "1" });
     if (res.status === 404) return undefined; // setlist.fm answers 404 when nothing matches
     if (!res.ok) throw new Error(`setlist.fm answered ${res.status}`);
     const body = (await res.json()) as { setlist?: RawSetlist[] };
     return pickSetlist(body.setlist ?? [], artist, city);
   }
 
+  /** The artist whose name is exactly `name`, best match first. A fuzzy search would also return bands that merely contain it. */
+  private async artistId(name: string): Promise<string | undefined> {
+    const res = await this.get("search/artists", { artistName: name, sort: "relevance", p: "1" });
+    if (res.status === 404) return undefined;
+    if (!res.ok) throw new Error(`setlist.fm answered ${res.status}`);
+    const body = (await res.json()) as { artist?: Array<{ mbid?: string; name?: string }> };
+    return (body.artist ?? []).find((a) => a.mbid && a.name && sameName(name, a.name))?.mbid;
+  }
+
   async recent({ artist, limit, before }: { artist: string; limit: number; before?: string }) {
-    await this.throttle();
+    const mbid = await this.artistId(artist);
+    if (!mbid) return [];
     // One page is 20 setlists, newest first. Many of them are empty drafts, so this can return fewer than `limit`.
-    const url = `https://api.setlist.fm/rest/1.0/search/setlists?${new URLSearchParams({ artistName: artist, p: "1" })}`;
-    const res = await this.fetchFn(url, { headers: { "x-api-key": this.apiKey, accept: "application/json", "accept-language": "en" } });
+    const res = await this.get(`artist/${encodeURIComponent(mbid)}/setlists`, { p: "1" });
     if (res.status === 404) return [];
     if (!res.ok) throw new Error(`setlist.fm answered ${res.status}`);
     const body = (await res.json()) as { setlist?: RawSetlist[] };

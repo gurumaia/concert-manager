@@ -13,9 +13,11 @@ import {
 } from "./photos.js";
 import type { Repo } from "./repo.js";
 import { personKey, type ReviewData, type ReviewLink, type ReviewRecipe, type ReviewShow } from "./review.js";
-import type { SetlistGateway } from "./setlist.js";
+import type { RecentSetlist, SetlistGateway } from "./setlist.js";
 import type {
   EventInput,
+  Playlist,
+  PlaylistInput,
   Setlist,
   SetlistInput,
   Rsvp,
@@ -40,6 +42,7 @@ export type EventWithVenueInput = EventInput & { venue?: VenueInput };
 /** Update payload: omitted = unchanged, null = clear. */
 export type Patch<T> = { [K in keyof T]?: T[K] | null };
 export type SyncResult = { status: "synced" | "removed" | "skipped" | "error"; message?: string };
+export type RecentActResult = { act: string; status: "found" | "none" | "error"; setlists: RecentSetlist[]; message?: string };
 export type SetlistActResult = { act: string; status: "found" | "not_found" | "kept_manual" | "error"; songs?: number; message?: string };
 /**
  * `past`: the show's date is over where it happens. `attended`: you were going and it is past, so you went. There is no stored
@@ -521,6 +524,42 @@ export class Service {
       ? [...others, { act: input.act, songs: input.songs, url: input.url, source: "manual", fetchedAt: this.now() }]
       : others;
     await this.repo.putEvent(ctx.userId, stripUndefined({ ...e, setlists: next.length ? next : undefined, updatedAt: this.now() }) as ShowEvent);
+    return this.view(ctx, (await this.repo.getEvent(ctx.userId, eventId))!);
+  }
+
+  /**
+   * What each act of a show has played lately on setlist.fm, newest first, so a client can build a playlist for the show.
+   * Nothing is stored: the songs are returned for the client to work with.
+   */
+  async recentSetlists(ctx: Ctx, eventId: string, opts: { limit?: number } = {}) {
+    if (!this.d.setlists) throw new AppError("invalid", "Setlist lookup is not set up on this server (no setlist.fm API key).");
+    const e = await this.mustEvent(ctx, eventId);
+    const limit = Math.min(Math.max(opts.limit ?? 5, 1), 10);
+    const acts: RecentActResult[] = [];
+    for (const act of e.lineup?.length ? e.lineup.map((a) => a.name) : [e.title]) {
+      try {
+        const setlists = await this.d.setlists.recent({ artist: act, limit, before: e.date });
+        acts.push({ act, status: setlists.length ? "found" : "none", setlists });
+      } catch (err) {
+        acts.push({ act, status: "error", setlists: [], message: (err as Error).message });
+      }
+    }
+    return { eventId: e.id, title: e.title, date: e.date, acts, playlists: e.playlists ?? [] };
+  }
+
+  /** Save the playlist a client built for one act on one streaming service; url null removes it. One per act and service. */
+  async setPlaylist(ctx: Ctx, eventId: string, input: PlaylistInput) {
+    const e = await this.mustEvent(ctx, eventId);
+    const service = input.service.trim().toLowerCase();
+    const key = norm(input.act);
+    const others = (e.playlists ?? []).filter((p) => !(p.service === service && norm(p.act) === key));
+    const next: Playlist[] = input.url
+      ? [...others, { act: input.act, service, url: input.url, ...(input.title ? { title: input.title } : {}), ...(input.trackCount !== undefined ? { trackCount: input.trackCount } : {}), createdAt: this.now() }]
+      : others;
+    const acts = e.lineup?.length ? e.lineup.map((a) => a.name) : [e.title];
+    const order = (p: Playlist) => { const i = acts.findIndex((a) => norm(a) === norm(p.act)); return i < 0 ? acts.length : i; };
+    next.sort((a, b) => order(a) - order(b));
+    await this.repo.putEvent(ctx.userId, stripUndefined({ ...e, playlists: next.length ? next : undefined, updatedAt: this.now() }) as ShowEvent);
     return this.view(ctx, (await this.repo.getEvent(ctx.userId, eventId))!);
   }
 

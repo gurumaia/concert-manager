@@ -1,10 +1,11 @@
 import type { Song } from "../domain/schemas.js";
-import type { FoundSetlist, SetlistGateway } from "../domain/setlist.js";
+import type { FoundSetlist, RecentSetlist, SetlistGateway } from "../domain/setlist.js";
 
 type RawSong = { name?: string; info?: string; tape?: boolean; cover?: { name?: string } };
 type RawSet = { name?: string; encore?: number; song?: RawSong[] };
 type RawSetlist = {
   url?: string;
+  eventDate?: string; // dd-MM-yyyy
   artist?: { name?: string };
   venue?: { name?: string; city?: { name?: string } };
   sets?: { set?: RawSet[] };
@@ -48,6 +49,22 @@ export function pickSetlist(candidates: RawSetlist[], artist: string, city?: str
   return { artist: chosen.artist!.name!, songs: songsOf(chosen), url: chosen.url };
 }
 
+/** setlist.fm dates are dd-MM-yyyy. */
+const isoDate = (d?: string) => { const m = /^(\d{2})-(\d{2})-(\d{4})$/.exec(d ?? ""); return m ? `${m[3]}-${m[2]}-${m[1]}` : undefined; };
+
+/** The artist's own setlists with songs, newest first. The search is fuzzy, so other artists' results are dropped. */
+export function pickRecent(candidates: RawSetlist[], artist: string, limit: number, before?: string): RecentSetlist[] {
+  return candidates
+    .map((c) => ({ c, date: isoDate(c.eventDate) }))
+    .filter((x): x is { c: RawSetlist; date: string } => !!x.date && (!before || x.date < before) && artistMatches(artist, x.c.artist?.name) && songsOf(x.c).length > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, limit)
+    .map(({ c, date }) => ({
+      artist: c.artist!.name!, date, songs: songsOf(c), url: c.url,
+      ...(c.venue?.name ? { venue: c.venue.name } : {}), ...(c.venue?.city?.name ? { city: c.venue.city.name } : {}),
+    }));
+}
+
 export class SetlistFmGateway implements SetlistGateway {
   private last = 0;
   /** setlist.fm allows about 2 requests per second on a free key; stay under it. */
@@ -69,5 +86,16 @@ export class SetlistFmGateway implements SetlistGateway {
     if (!res.ok) throw new Error(`setlist.fm answered ${res.status}`);
     const body = (await res.json()) as { setlist?: RawSetlist[] };
     return pickSetlist(body.setlist ?? [], artist, city);
+  }
+
+  async recent({ artist, limit, before }: { artist: string; limit: number; before?: string }) {
+    await this.throttle();
+    // One page is 20 setlists, newest first. Many of them are empty drafts, so this can return fewer than `limit`.
+    const url = `https://api.setlist.fm/rest/1.0/search/setlists?${new URLSearchParams({ artistName: artist, p: "1" })}`;
+    const res = await this.fetchFn(url, { headers: { "x-api-key": this.apiKey, accept: "application/json", "accept-language": "en" } });
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error(`setlist.fm answered ${res.status}`);
+    const body = (await res.json()) as { setlist?: RawSetlist[] };
+    return pickRecent(body.setlist ?? [], artist, limit, before);
   }
 }

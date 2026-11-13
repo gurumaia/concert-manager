@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { Service } from "../src/domain/service.js";
-import type { FoundSetlist, SetlistGateway } from "../src/domain/setlist.js";
+import type { FoundSetlist, RecentSetlist, SetlistGateway } from "../src/domain/setlist.js";
 import { PlainEncryptor } from "../src/infra/crypto.js";
-import { SetlistFmGateway, pickSetlist, songsOf } from "../src/infra/setlistfm.js";
+import { SetlistFmGateway, pickRecent, pickSetlist, songsOf } from "../src/infra/setlistfm.js";
 import { FakeCalendar, friedman, setup } from "./helpers.js";
 
 class FakeSetlists implements SetlistGateway {
   calls: Array<{ artist: string; date: string; city?: string }> = [];
   data = new Map<string, FoundSetlist>();
+  recents = new Map<string, RecentSetlist[]>();
+  recentCalls: Array<{ artist: string; limit: number; before?: string }> = [];
   fail = false;
+  async recent(q: { artist: string; limit: number; before?: string }) {
+    this.recentCalls.push(q);
+    if (this.fail) throw new Error("setlist.fm answered 429");
+    return this.recents.get(q.artist) ?? [];
+  }
   async find(q: { artist: string; date: string; city?: string }) {
     this.calls.push(q);
     if (this.fail) throw new Error("setlist.fm answered 429");
@@ -99,6 +106,78 @@ describe("setlists", () => {
     gw.calls.length = 0;
     await svc.syncRecentSetlists();
     expect(gw.calls.map((c) => c.artist)).toEqual(["Marty Friedman", "Opener Band"]);
+  });
+});
+
+describe("playlists", () => {
+  const shows: RecentSetlist[] = [{ artist: "Marty Friedman", date: "2026-10-01", city: "Tokyo", songs: [{ name: "A" }] }];
+
+  it("returns recent setlists per act without storing them", async () => {
+    const { svc, me, gw } = await withSetlists();
+    const { event } = await svc.createEvent(me, { ...friedman, date: "2026-11-20" });
+    gw.recents.set("Marty Friedman", shows);
+    const r = await svc.recentSetlists(me, event.id, { limit: 3 });
+    expect(r.acts).toMatchObject([{ act: "Marty Friedman", status: "found", setlists: shows }, { act: "Opener Band", status: "none", setlists: [] }]);
+    expect(gw.recentCalls[0]).toEqual({ artist: "Marty Friedman", limit: 3, before: "2026-11-20" });
+    expect((await svc.getEvent(me, event.id)).setlists).toBeUndefined();
+  });
+
+  it("caps the limit, defaults to 5 and reports a failing act instead of failing the call", async () => {
+    const { svc, me, gw } = await withSetlists();
+    const { event } = await svc.createEvent(me, friedman);
+    await svc.recentSetlists(me, event.id);
+    await svc.recentSetlists(me, event.id, { limit: 99 });
+    expect(gw.recentCalls.map((c) => c.limit)).toEqual([5, 5, 10, 10]);
+    gw.fail = true;
+    expect((await svc.recentSetlists(me, event.id)).acts.every((a) => a.status === "error")).toBe(true);
+  });
+
+  it("explains itself when no API key is configured", async () => {
+    const { svc, me } = await setup();
+    const { event } = await svc.createEvent(me, friedman);
+    await expect(svc.recentSetlists(me, event.id)).rejects.toThrow(/API key/);
+  });
+
+  it("stores one playlist per act and service, replaces it, keeps lineup order and removes with url null", async () => {
+    const { svc, me } = await withSetlists();
+    const { event } = await svc.createEvent(me, friedman);
+    await svc.setPlaylist(me, event.id, { act: "opener band", service: "Spotify", url: "https://open.spotify.com/playlist/1", title: "Opener" });
+    await svc.setPlaylist(me, event.id, { act: "Marty Friedman", service: "spotify", url: "https://open.spotify.com/playlist/2", trackCount: 20 });
+    await svc.setPlaylist(me, event.id, { act: "Marty Friedman", service: "applemusic", url: "https://music.apple.com/pl/3" });
+    let v = await svc.setPlaylist(me, event.id, { act: "MARTY FRIEDMAN", service: "spotify", url: "https://open.spotify.com/playlist/4" });
+    expect(v.playlists?.map((p) => [p.act, p.service, p.url.slice(-1)])).toEqual([
+      ["Marty Friedman", "applemusic", "3"], ["MARTY FRIEDMAN", "spotify", "4"], ["opener band", "spotify", "1"],
+    ]);
+    v = await svc.setPlaylist(me, event.id, { act: "Marty Friedman", service: "spotify", url: null });
+    expect(v.playlists).toHaveLength(2);
+    await svc.setPlaylist(me, event.id, { act: "Marty Friedman", service: "applemusic", url: null });
+    v = await svc.setPlaylist(me, event.id, { act: "Opener Band", service: "spotify", url: null });
+    expect(v.playlists).toBeUndefined();
+  });
+
+  it("keeps playlists when the event is edited", async () => {
+    const { svc, me } = await withSetlists();
+    const { event } = await svc.createEvent(me, friedman);
+    await svc.setPlaylist(me, event.id, { act: "Marty Friedman", service: "spotify", url: "https://open.spotify.com/playlist/1" });
+    const { event: after } = await svc.updateEvent(me, event.id, { notes: "x" });
+    expect(after.playlists).toHaveLength(1);
+  });
+
+  it("picks the artist's newest setlists with songs, before the show, dropping other artists", () => {
+    const r = (artist: string, eventDate: string, songs: string[]) => ({ artist: { name: artist }, eventDate, venue: { name: "V", city: { name: "C" } }, sets: { set: [{ song: songs.map((name) => ({ name })) }] } });
+    const list = [r("Marty Friedman", "01-10-2026", ["A"]), r("Marty Friedman", "20-11-2026", ["Z"]), r("Marty Friedman", "05-10-2026", []), r("Other", "02-10-2026", ["B"]), r("Marty Friedman", "20-09-2026", ["C"])];
+    expect(pickRecent(list, "Marty Friedman", 5, "2026-11-20").map((x) => [x.date, x.songs[0]!.name])).toEqual([["2026-10-01", "A"], ["2026-09-20", "C"]]);
+    expect(pickRecent(list, "Marty Friedman", 1)).toHaveLength(1);
+  });
+
+  it("gateway asks for the artist without a date and treats 404 as nothing", async () => {
+    const seen: string[] = [];
+    const responses = [new Response(JSON.stringify({ setlist: [{ artist: { name: "X" }, eventDate: "01-10-2026", sets: { set: [{ song: [{ name: "A" }] }] } }] })), new Response("{}", { status: 404 })];
+    const fetchFn = (async (url: string) => { seen.push(url); return responses.shift()!; }) as unknown as typeof fetch;
+    const gw = new SetlistFmGateway("k", fetchFn, async () => {});
+    expect(await gw.recent({ artist: "X", limit: 5 })).toHaveLength(1);
+    expect(new URL(seen[0]!).searchParams.has("date")).toBe(false);
+    expect(await gw.recent({ artist: "Y", limit: 5 })).toEqual([]);
   });
 });
 

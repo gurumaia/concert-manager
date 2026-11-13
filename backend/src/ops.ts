@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EventInput, DateStr, RsvpInput, RsvpStatus, SaleStatus, SetlistInput, VenueInput } from "./domain/schemas.js";
+import { EventInput, DateStr, PlaylistInput, RsvpInput, RsvpStatus, SaleStatus, SetlistInput, VenueInput } from "./domain/schemas.js";
 import { ReviewRecipe } from "./domain/review.js";
 import type { Ctx, Service } from "./domain/service.js";
 
@@ -121,6 +121,25 @@ export const ops: Op[] = [
       "Use `section` for encores. Manual setlists are not overwritten by sync_setlist.",
     input: SetlistInput.extend({ eventId: id }),
     run: (s, c, { eventId, ...setlist }) => s.setSetlist(c, eventId, setlist),
+  }),
+
+  // ---- playlists
+  op({
+    name: "get_recent_setlists", title: "Recent setlists of the lineup", readOnly: true,
+    description:
+      "For building a playlist for a show (usually one the user is going to): what each act of the lineup played at its most recent shows on setlist.fm, newest first (default 5 per act, max 10; only shows before this event's date). " +
+      "Nothing is stored. Returns per act: status found / none / error and setlists [{date, venue, city, url, songs}], plus the event's current `playlists`. " +
+      "Pick the songs yourself (e.g. the ones played most often), create the playlist on the streaming service with the user's own access, then save the link with set_playlist.",
+    input: z.object({ eventId: id, limit: z.number().int().min(1).max(10).optional().describe("Setlists per act, default 5") }),
+    run: (s, c, i) => s.recentSetlists(c, i.eventId, { limit: i.limit }),
+  }),
+  op({
+    name: "set_playlist", title: "Save playlist link",
+    description:
+      "Attach a playlist you created for one act of a show: act, service (lower case, 'spotify' for now), url, optional title and trackCount. " +
+      "One playlist per act and service: saving again replaces it. url null removes it. The app shows these in the event's Playlists section.",
+    input: PlaylistInput.extend({ eventId: id }),
+    run: (s, c, { eventId, ...playlist }) => s.setPlaylist(c, eventId, playlist),
   }),
 
   // ---- rsvp

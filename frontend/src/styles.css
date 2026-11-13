@@ -468,10 +468,12 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-who { font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
 .rv-ctl { display: flex; gap: 6px; }
 .rv-round { width: 32px; height: 32px; border-radius: 50%; border: 0; display: grid; place-items: center; background: rgba(43, 33, 24, .6); color: #fff; cursor: pointer; font-size: 1.1rem; padding: 0; min-height: 0; }
-.rv-round:focus-visible, .rv-tap:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
+.rv-round:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
+/* The tap areas are for fingers and the mouse; the keyboard uses the arrow keys on the story itself, so they never show a focus box. */
+.rv-tap:focus, .rv-tap:focus-visible { outline: none; }
 .rv-round.light { background: #fff; color: var(--ink); box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
 .rv-round:disabled { opacity: .35; cursor: default; }
-.rv-tap { position: absolute; top: 64px; bottom: 0; border: 0; background: transparent; padding: 0; margin: 0; cursor: pointer; z-index: 2; -webkit-tap-highlight-color: transparent; min-height: 0; }
+.rv-tap { -webkit-touch-callout: none; position: absolute; top: 64px; bottom: 0; border: 0; background: transparent; padding: 0; margin: 0; cursor: pointer; z-index: 2; -webkit-tap-highlight-color: transparent; min-height: 0; }
 .rv-tap-prev { left: 0; width: 30%; }
 .rv-tap-next { left: 30%; right: 0; }
 .rv-slide { position: absolute; inset: 0; pointer-events: none; }

@@ -14,7 +14,7 @@ export type Slide =
   | { kind: "venue"; name: string; count: number; withCompany: number; pic?: Pic }
   | { kind: "people"; top: Count[] }
   | { kind: "best"; title: string; score: number; when: string; venue?: string; pics: Pic[] }
-  | { kind: "song"; name: string; count: number }
+  | { kind: "song"; name: string; act: string; count: number }
   | { kind: "gallery"; pics: Pic[] }
   | { kind: "bookends"; first: { title: string; when: string }; last: { title: string; when: string } }
   | { kind: "outro"; range: string; count: number; photos: number };
@@ -147,8 +147,17 @@ export function buildDeck(data: ReviewData, today: string = new Date().toISOStri
   }
 
   // Most-heard song: once per show, at least twice.
-  const songs = rank(shows.flatMap((s) => [...new Map(s.songs.map((n) => [fold(n), n])).values()]));
-  if (songs[0] && songs[0].count >= 2) slides.push({ kind: "song", name: songs[0].name, count: songs[0].count });
+  // The same title by two different bands is two different songs, so they are counted by song and band.
+  const bySong = new Map<string, { name: string; act: string; count: number }>();
+  for (const s of shows) {
+    for (const x of new Map(s.songs.map((x) => [`${fold(x.name)}|${fold(x.act)}`, x])).values()) {
+      const k = `${fold(x.name)}|${fold(x.act)}`;
+      const r = bySong.get(k);
+      if (r) r.count++; else bySong.set(k, { name: x.name, act: x.act, count: 1 });
+    }
+  }
+  const song = [...bySong.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))[0];
+  if (song && song.count >= 2) slides.push({ kind: "song", name: song.name, act: song.act, count: song.count });
 
   if (allPics.length >= GALLERY_MIN) slides.push({ kind: "gallery", pics: spread(allPics, GALLERY_MAX) });
 

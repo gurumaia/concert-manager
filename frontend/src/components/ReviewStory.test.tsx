@@ -53,6 +53,33 @@ describe("ReviewStory", () => {
     expect(heading()).toMatch(/It started with/);
   });
 
+  it("holding the screen pauses it for good, and the release does not change slide", () => {
+    render(<ReviewStory data={DATA} today={TODAY} />);
+    const next = screen.getByLabelText("Next slide");
+    fireEvent.pointerDown(next);
+    tick(500);
+    fireEvent.pointerUp(next);
+    fireEvent.click(next); // what a browser sends when the finger lifts
+    expect(screen.getByLabelText("Play")).toBeTruthy();
+    expect(heading()).toBe("In 2026 you went to");
+    tick(60_000);
+    expect(heading()).toBe("In 2026 you went to"); // still paused after letting go
+    fireEvent.click(next); // the next plain tap works as usual
+    expect(heading()).toMatch(/Your highest score/);
+  });
+
+  it("a quick tap is not a hold", () => {
+    render(<ReviewStory data={DATA} today={TODAY} />);
+    const next = screen.getByLabelText("Next slide");
+    fireEvent.pointerDown(next);
+    tick(100);
+    fireEvent.pointerUp(next);
+    fireEvent.click(next);
+    tick(500);
+    expect(screen.getByLabelText("Pause")).toBeTruthy();
+    expect(heading()).toMatch(/Your highest score/);
+  });
+
   it("the photo slideshow has previous and next arrows and keeps its own pace", () => {
     render(<ReviewStory data={DATA} today={TODAY} />);
     fireEvent.click(screen.getByLabelText("Next slide"));

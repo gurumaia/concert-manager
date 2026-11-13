@@ -24,8 +24,8 @@ describe("buildDeck", () => {
   it("builds every slide for a rich year, in a fixed order", () => {
     const venue = { name: "Vibra", city: "São Paulo" };
     const s = [
-      show("Slayer", "2026-03-05", { genre: "Metal", venue, companions: ["Ana"], companionCount: 1, songs: ["Raining Blood"], photos: [photo("a"), photo("b")], score: 9 }),
-      show("Slayer", "2026-03-20", { genre: "Metal", venue, songs: ["Raining Blood"], photos: [photo("c")], score: 7 }),
+      show("Slayer", "2026-03-05", { genre: "Metal", venue, companions: ["Ana"], companionCount: 1, songs: [{ name: "Raining Blood", act: "Slayer" }], photos: [photo("a"), photo("b")], score: 9 }),
+      show("Slayer", "2026-03-20", { genre: "Metal", venue, songs: [{ name: "Raining Blood", act: "Slayer" }], photos: [photo("c")], score: 7 }),
       show("Bossa", "2026-09-14", { genre: "MPB", venue: { name: "Blue Note", city: "Rio" }, photos: [photo("d"), photo("e")] }),
     ];
     const deck = buildDeck(data(s), "2026-12-31");
@@ -33,7 +33,7 @@ describe("buildDeck", () => {
     expect(deck[0]).toMatchObject({ count: 3, venues: 2, cities: 2, every: 122 });
     expect(deck[1]).toMatchObject({ best: "March", count: 2 });
     expect(deck.find((x) => x.kind === "best")).toMatchObject({ title: "Slayer", score: 9, when: "March 5, 2026" });
-    expect(deck.find((x) => x.kind === "song")).toMatchObject({ name: "Raining Blood", count: 2 });
+    expect(deck.find((x) => x.kind === "song")).toMatchObject({ name: "Raining Blood", act: "Slayer", count: 2 });
   });
 
   it("the busiest month is one calendar month, named with its year only when the range spans several years", () => {
@@ -46,6 +46,13 @@ describe("buildDeck", () => {
     // the same month in two years is two different months: 2+2 is a tie, not 4
     const tie = [show("A", "2024-03-01"), show("B", "2024-03-09"), show("C", "2025-03-02"), show("D", "2025-03-20")];
     expect(buildDeck(data(tie, { from: "2024-01-01", to: "2025-12-31" }), "2025-12-31").map((x) => x.kind)).not.toContain("months");
+  });
+
+  it("the same song title by two bands is two songs, and the slide names the band", () => {
+    const a = (act: string) => ({ name: "Intro", act });
+    const s = [show("A", "2026-01-10", { songs: [a("Slayer"), a("Slayer")] }), show("B", "2026-02-10", { songs: [a("Sepultura")] }), show("C", "2026-03-10", { songs: [a("Sepultura")] }), show("D", "2026-04-10", { songs: [a("Sepultura")] })];
+    const song = buildDeck(data(s), "2026-12-31").find((x) => x.kind === "song");
+    expect(song).toMatchObject({ name: "Intro", act: "Sepultura", count: 3 });
   });
 
   it("photo captions use the show's name, not one of its acts", () => {

@@ -1001,7 +1001,7 @@ export class Service {
         lineup: (e.lineup ?? []).map((a) => ({ name: a.name, ...(a.role ? { role: a.role } : {}) })),
         ...(e.topScore !== undefined ? { score: e.topScore } : {}),
         companions: showNames ? companions : [], companionCount: companions.length,
-        songs: (e.setlists ?? []).flatMap((l) => l.songs.filter((x) => !x.tape).map((x) => x.name)).slice(0, 80),
+        songs: (e.setlists ?? []).flatMap((l) => l.songs.filter((x) => !x.tape).map((x) => ({ name: x.name, act: l.act }))).slice(0, 80),
         photos,
       });
     }

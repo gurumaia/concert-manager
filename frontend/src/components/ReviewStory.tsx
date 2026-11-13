@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "../reviewFont.css";
+import { fitCaption, type FittedCaption } from "../fitCaption";
 import { preload } from "../preload";
 import { PHOTO_MS, buildDeck, SLIDESHOW_AHEAD, firstScreenImages, slideDuration, slideImages, type Count, type Pic, type Slide } from "../review";
 import type { ReviewData } from "../types";
@@ -203,7 +204,7 @@ function SlideView({ slide, photoIdx, onPhoto }: { slide: Slide; photoIdx: numbe
           <Note rot={-2}><b>{slide.count}</b>nights there</Note>
           {slide.withCompany > 0 && <Note rot={3} pink><b>{slide.withCompany}</b>with company</Note>}
           {slide.pic && <Polaroid pic={slide.pic} src={slide.pic.thumbUrl} rot={-4} small />}
-          <Stamp>FAVOURITE</Stamp>
+          <Stamp left>MOST VISITED</Stamp>
         </Page>
       );
     case "people":
@@ -217,7 +218,7 @@ function SlideView({ slide, photoIdx, onPhoto }: { slide: Slide; photoIdx: numbe
       return (
         <Page>
           <h2 className="rv-hand rv-lead">Your highest score<br /><span className="rv-red">{slide.score} · {slide.title}</span></h2>
-          {slide.pics.length ? <Slideshow pics={slide.pics} idx={photoIdx} onPhoto={onPhoto} /> : <><Note rot={-2}><b>{slide.score}</b>out of 10</Note><Stamp>SHOW OF THE YEAR</Stamp></>}
+          {slide.pics.length ? <Slideshow pics={slide.pics} idx={photoIdx} onPhoto={onPhoto} /> : <><Note rot={-2}><b>{slide.score}</b>out of 10</Note><Stamp>TOP SCORE</Stamp></>}
           <p className="rv-hand rv-faint">{slide.when}{slide.venue ? ` · ${slide.venue}` : ""}</p>
         </Page>
       );
@@ -262,7 +263,7 @@ const Page = ({ children }: { children: ReactNode }) => <div className="rv-page"
 const Note = ({ children, rot, pink }: { children: ReactNode; rot: number; pink?: boolean }) => (
   <div className={`rv-note rv-hand${pink ? " pink" : ""}`} style={{ transform: `rotate(${rot}deg)` }}>{children}</div>
 );
-const Stamp = ({ children }: { children: ReactNode }) => <div className="rv-stamp" aria-hidden="true">{children}</div>;
+const Stamp = ({ children, left }: { children: ReactNode; left?: boolean }) => <div className={`rv-stamp${left ? " left" : ""}`} aria-hidden="true">{children}</div>;
 
 function Ranking({ top, unit }: { top: Count[]; unit: string }) {
   return (
@@ -276,15 +277,51 @@ function Ranking({ top, unit }: { top: Count[]; unit: string }) {
   );
 }
 
-function Polaroid({ pic, src, rot, small }: { pic: Pic; src: string; rot: number; small?: boolean }) {
+/** `tail` is what follows the show's name in the caption, such as " · 3 / 12" in a slideshow. A caption typed on the photo is shown as it is. */
+function Polaroid({ pic, src, rot, small, tail = "" }: { pic: Pic; src: string; rot: number; small?: boolean; tail?: string }) {
   const [broken, setBroken] = useState(false);
+  const base = pic.caption ?? pic.title ?? pic.label;
+  const suffix = pic.caption ? "" : `${pic.title && pic.month ? ` · ${pic.month}` : ""}${tail}`;
   return (
     <figure className={`rv-pol${small ? " small" : ""}`} style={{ "--rot": `${rot}deg` } as CSSProperties}>
       <span className="rv-tape" aria-hidden="true" />
-      {broken ? <div className="rv-pic-missing" /> : <img src={src} alt={pic.caption ?? pic.label} decoding="async" draggable={false} onError={() => setBroken(true)} />}
-      <figcaption className="rv-hand">{pic.caption ?? pic.label}</figcaption>
+      {broken ? <div className="rv-pic-missing" /> : <img src={src} alt={base + suffix} decoding="async" draggable={false} onError={() => setBroken(true)} />}
+      <FitLine text={base} suffix={suffix} />
     </figure>
   );
+}
+
+let canvas: CanvasRenderingContext2D | null | undefined;
+const measurer = (): CanvasRenderingContext2D | null => {
+  if (canvas === undefined) { try { canvas = document.createElement("canvas").getContext("2d"); } catch { canvas = null; } }
+  return canvas;
+};
+
+/**
+ * A one-line caption that never cuts a word in half: it shrinks a little to fit, or ends at a whole word with "…" (see fitCaption).
+ * Measured with the real font and the real width, again whenever either changes. Without a canvas (old browsers, tests) the plain CSS ellipsis applies.
+ */
+function FitLine({ text, suffix }: { text: string; suffix: string }) {
+  const el = useRef<HTMLElement>(null);
+  const [fit, setFit] = useState<FittedCaption>();
+  useLayoutEffect(() => {
+    const node = el.current;
+    const ctx = measurer();
+    if (!node || !ctx) return;
+    const run = () => {
+      const cs = getComputedStyle(node);
+      const width = node.clientWidth;
+      if (!width) return;
+      ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      setFit(fitCaption(text, suffix, width, (s) => ctx.measureText(s).width));
+    };
+    run();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(run) : undefined;
+    ro?.observe(node);
+    void document.fonts?.ready.then(run);
+    return () => ro?.disconnect();
+  }, [text, suffix]);
+  return <figcaption ref={el} className="rv-hand" style={fit && fit.scale < 1 ? { fontSize: `calc(5cqw * ${fit.scale})` } : undefined}>{(fit?.text ?? text) + suffix}</figcaption>;
 }
 
 /** One photo at a time with previous/next arrows and dots. It keeps moving on its own until paused. */
@@ -292,7 +329,7 @@ function Slideshow({ pics, idx, onPhoto }: { pics: Pic[]; idx: number; onPhoto: 
   const pic = pics[idx]!;
   return (
     <div className="rv-show">
-      <Polaroid key={pic.id} pic={{ ...pic, label: pics.length > 1 ? `${pic.label} · ${idx + 1} / ${pics.length}` : pic.label }} src={pic.url} rot={tilt(idx)} />
+      <Polaroid key={pic.id} pic={pic} src={pic.url} rot={tilt(idx)} tail={pics.length > 1 ? ` · ${idx + 1} / ${pics.length}` : ""} />
       {pics.length > 1 && (
         <div className="rv-nav">
           <button className="rv-round light" onClick={() => onPhoto(idx - 1)} disabled={idx === 0} aria-label="Previous photo">‹</button>

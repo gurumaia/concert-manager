@@ -55,7 +55,8 @@ export function rangeLabel(from: string, to: string): string {
   return y(from) === y(to) ? `${shortDate(from)} – ${shortDate(to)}, ${y(to)}` : `${shortDate(from)}, ${y(from)} – ${shortDate(to)}, ${y(to)}`;
 }
 
-const picsOf = (s: ReviewShow): Pic[] => s.photos.map((p) => ({ ...p, label: `${headlinerOf(s)} · ${monthShort(s.date)}` }));
+/** Captions use the show's own name: a festival has several headliners and the photo can be from any of them. A caption the photo already has wins (see Polaroid). */
+const picsOf = (s: ReviewShow): Pic[] => s.photos.map((p) => ({ ...p, label: `${s.title} · ${monthShort(s.date)}` }));
 
 /** Up to `n` photos spread evenly through the list (so a deck does not show only the first show's pictures). */
 function spread<T>(all: T[], n: number): T[] {
@@ -84,14 +85,20 @@ export function buildDeck(data: ReviewData, today: string = new Date().toISOStri
     ...(shows.length >= 2 && days >= shows.length ? { every: Math.round(days / shows.length) } : {}),
   });
 
-  // Busiest month: needs a few shows and a clear winner (a three-way tie says nothing).
+  // Busiest month: the single calendar month (a year and a month) with the most shows. Needs a few shows and a clear winner (a tie says nothing).
+  // The chart shows the twelve months of that year. With a range over several years the year is part of the name ("March 2024").
   if (shows.length >= 3) {
-    const by = Array<number>(12).fill(0);
-    for (const s of shows) by[Number(s.date.slice(5, 7)) - 1]!++;
-    const max = Math.max(...by);
-    if (by.filter((n) => n === max).length === 1 && max >= 2) {
-      const i = by.indexOf(max);
-      slides.push({ kind: "months", best: fmt(`2000-${String(i + 1).padStart(2, "0")}-01`, { month: "long" }), count: max, byMonth: by });
+    const byYm = new Map<string, number>();
+    for (const s of shows) byYm.set(s.date.slice(0, 7), (byYm.get(s.date.slice(0, 7)) ?? 0) + 1);
+    const max = Math.max(...byYm.values());
+    const winners = [...byYm].filter(([, n]) => n === max);
+    if (winners.length === 1 && max >= 2) {
+      const ym = winners[0]![0];
+      const year = ym.slice(0, 4);
+      const byMonth = Array.from({ length: 12 }, (_, i) => byYm.get(`${year}-${String(i + 1).padStart(2, "0")}`) ?? 0);
+      const multiYear = from.slice(0, 4) !== to.slice(0, 4);
+      const month = fmt(`${ym}-01`, { month: "long" });
+      slides.push({ kind: "months", best: multiYear ? `${month} ${year}` : month, count: max, byMonth });
     }
   }
 

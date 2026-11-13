@@ -36,6 +36,24 @@ describe("buildDeck", () => {
     expect(deck.find((x) => x.kind === "song")).toMatchObject({ name: "Raining Blood", count: 2 });
   });
 
+  it("the busiest month is one calendar month, named with its year only when the range spans several years", () => {
+    const s = [show("A", "2024-03-01"), show("B", "2024-03-09"), show("C", "2024-03-20"), show("D", "2025-08-02"), show("E", "2025-08-20")];
+    const multi = buildDeck(data(s, { from: "2024-01-01", to: "2025-12-31" }), "2025-12-31").find((x) => x.kind === "months") as Extract<Slide, { kind: "months" }>;
+    expect(multi).toMatchObject({ best: "March 2024", count: 3 });
+    expect(multi.byMonth).toEqual([0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const one = buildDeck(data(s.slice(0, 3), { from: "2024-01-01", to: "2024-12-31" }), "2025-12-31").find((x) => x.kind === "months");
+    expect(one).toMatchObject({ best: "March" });
+    // the same month in two years is two different months: 2+2 is a tie, not 4
+    const tie = [show("A", "2024-03-01"), show("B", "2024-03-09"), show("C", "2025-03-02"), show("D", "2025-03-20")];
+    expect(buildDeck(data(tie, { from: "2024-01-01", to: "2025-12-31" }), "2025-12-31").map((x) => x.kind)).not.toContain("months");
+  });
+
+  it("photo captions use the show's name, not one of its acts", () => {
+    const s = [show("Festival CPM 22", "2026-09-14", { lineup: [{ name: "Green Day", role: "headliner" }, { name: "CPM 22", role: "support" }], photos: [photo("a"), photo("b"), photo("c"), photo("d"), photo("e")] }), show("B", "2026-10-01")];
+    const g = buildDeck(data(s), "2026-12-31").find((x) => x.kind === "gallery") as Extract<Slide, { kind: "gallery" }>;
+    expect(g.pics.map((p) => p.label)).toEqual(Array(5).fill("Festival CPM 22 · Sep"));
+  });
+
   it("no tie for busiest month, no 'crew' when the review is about specific people", () => {
     const s = [show("A", "2026-01-10", { companions: ["Ana"] }), show("B", "2026-02-10"), show("C", "2026-03-10")];
     expect(kinds(data(s))).not.toContain("months");

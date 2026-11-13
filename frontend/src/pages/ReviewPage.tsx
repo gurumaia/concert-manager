@@ -11,7 +11,7 @@ const PEOPLE_SHOWN = 10;
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Year in review: pick a date range and (optionally) people, play it as a tap-through story, or share a public, unlisted link to it. */
+/** Recap: pick a date range and (optionally) people, play it as a tap-through story, or share a public, unlisted link to it. */
 export function ReviewPage() {
   const [events, setEvents] = useState<EventView[]>();
   const [from, setFrom] = useState("");
@@ -90,7 +90,7 @@ export function ReviewPage() {
 
   return (
     <>
-      <h1>Year in review</h1>
+      <h1>Recap</h1>
       <p className="muted">A tap-through story of the shows you went to, with your photos. Pick a period, and optionally who you went with.</p>
       {error && <p role="alert" className="error">{error}</p>}
       {!events && !error && <p className="muted">Loading…</p>}
@@ -140,7 +140,7 @@ export function ReviewPage() {
                 ? <p className="lead">{plural(shows, "show")} · {plural(photos, "photo")}<span className="muted"> · {rangeLabel(from, to)}</span></p>
                 : <p className="lead">No shows in this selection.<span className="muted"> Try a wider period{names.length ? " or fewer people" : ""}.</span></p>
             )}
-            <button className="btn primary big" disabled={!shows || busy} onClick={() => setPlaying(true)}>Play my year in review</button>
+            <button className="btn primary big" disabled={!shows || busy} onClick={() => setPlaying(true)}>Play my recap</button>
           </section>
 
           <section className="card rv-form" aria-label="Share">

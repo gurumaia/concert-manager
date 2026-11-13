@@ -18,7 +18,7 @@ import type { EventView, VenueRow } from "./types";
 const NAV = [
   { path: "/", label: "Shows" },
   { path: "/history", label: "History" },
-  { path: "/review", label: "Year in review" },
+  { path: "/review", label: "Recap" },
   { path: "/shared", label: "Shared with me" },
   { path: "/venues", label: "Venues" },
   { path: "/settings", label: "Settings" },
@@ -65,7 +65,7 @@ export function App() {
     completeGoogleLogin(code).then(signedIn).catch((e) => setAuthError(e.message));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A shared year in review is public: it needs neither sign-in nor the app config.
+  // A shared recap is public: it needs neither sign-in nor the app config.
   if (path.startsWith("/r/")) return <PublicReviewPage token={path.slice(3).split(/[?#]/)[0]!} />;
   if (!cfg) return <Centered>{authError ? <p role="alert" className="error">{authError}</p> : <p className="muted">Loading…</p>}</Centered>;
   if (path.startsWith("/auth/callback")) {

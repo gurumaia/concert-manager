@@ -81,14 +81,28 @@ describe("EventCard", () => {
     expect(within(foot).queryByRole("button", { name: "Going" })).toBeNull();
   });
 
-  it("shows the sharer's RSVP as a read-only badge on a shared show", () => {
-    card({ ...bare, rsvp: { eventId: "1", status: "going", sharedWith: [], createdAt: "", updatedAt: "" } }, { onQuick: undefined, sharedBy: "Her" });
-    expect(within(document.querySelector(".foot") as HTMLElement).getByText("Going").className).toContain("badge");
+  const her = [{ id: "o", name: "Her" }];
+  const going = { eventId: "1", status: "going" as const, sharedWith: [], createdAt: "", updatedAt: "" };
+
+  it("says who tagged you, in place of a status, until you answer; the quick answers stay", () => {
+    card({ ...bare, tagged: true, taggedBy: her });
+    expect(screen.getByText("Her tagged you")).toBeTruthy();
+    expect(document.querySelector("li")!.className).toContain("tagged");
+    expect(within(document.querySelector(".foot") as HTMLElement).getByRole("button", { name: "Going" })).toBeTruthy();
   });
 
-  it("shows who shared it instead of actions on a shared show", () => {
-    card(bare, { onQuick: undefined, sharedBy: "Her" });
-    expect(screen.getByText("from Her")).toBeTruthy();
+  it("once you answer it is a normal show: your status, and the tagger as a quiet detail", () => {
+    card({ ...bare, venue: base.venue, tagged: true, taggedBy: her, rsvp: going });
+    expect(screen.queryByText("Her tagged you")).toBeNull();
+    expect(screen.getByText("· with Her")).toBeTruthy();
+    expect(within(document.querySelector(".foot") as HTMLElement).getByRole("button", { name: "Going" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a show of your own that someone also tagged you on carries no pill or stripe, only their name", () => {
+    card({ ...base, taggedBy: her });
+    expect(screen.queryByText("Her tagged you")).toBeNull();
+    expect(document.querySelector("li")!.className).not.toContain("tagged");
+    expect(screen.getByText("· with Her")).toBeTruthy();
   });
 
   it("opens the details from the card body", () => {

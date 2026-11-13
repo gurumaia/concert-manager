@@ -1,6 +1,6 @@
 import type { Photo, PhotoRef } from "./photos.js";
 import type { ReviewLink } from "./review.js";
-import type { Person, Rsvp, ShowEvent, UserProfile, Venue } from "./schemas.js";
+import type { Person, Rsvp, ShowEvent, TagLoss, UserProfile, Venue } from "./schemas.js";
 
 /** A pending Google OAuth handshake, keyed by the random `state` value. */
 export type OAuthState = { userId: string; expiresAt: number };
@@ -36,6 +36,11 @@ export interface Repo {
   listPeople(userId: string): Promise<Person[]>;
   putPerson(userId: string, person: Person): Promise<void>;
   deletePerson(userId: string, key: string): Promise<void>;
+
+  /** Shows I was tagged on that I lost access to, waiting for me to keep a copy or let go. */
+  listTagLosses(userId: string): Promise<TagLoss[]>;
+  putTagLoss(userId: string, loss: TagLoss): Promise<void>;
+  deleteTagLoss(userId: string, ownerId: string, eventId: string): Promise<void>;
 
   getPhoto(userId: string, eventId: string, id: string): Promise<Photo | undefined>;
   listPhotos(userId: string, eventId: string): Promise<Photo[]>;

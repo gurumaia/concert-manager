@@ -149,6 +149,12 @@ export type Rsvp = Omit<RsvpInput, "score" | "actScores"> & {
 /** Someone the user goes to shows with. `key` is the folded name; an email links them to an account (now or later). */
 export type Person = { key: string; name: string; email?: string };
 
+/**
+ * A show someone else owned that I could see (I was tagged on it), kept when that access ended, so I can be offered a copy.
+ * My own RSVP, score and photos on it live under my account, keyed by the owner's event id.
+ */
+export type TagLoss = { ownerId: string; ownerName?: string; eventId: string; event: ShowEvent; venue: Venue | null; lostAt: string };
+
 export { Email };
 
 // ---- User ----

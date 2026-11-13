@@ -22,12 +22,12 @@ describe("EventCard photo counter", () => {
     fireEvent.click(screen.getByRole("button", { name: /Slayer, .*Open details/ }));
     expect(onOpen).toHaveBeenCalledWith(); // no target
   });
-  it("is hidden with no photos, singular for one, and absent on upcoming, shared and read-only cards", () => {
+  it("is hidden with no photos, singular for one, and absent on upcoming and read-only cards", () => {
     const { rerender } = render(<ul><EventCard event={ev({ photoCount: 0 })} onOpen={() => {}} /></ul>);
     expect(screen.queryByRole("button", { name: /photo/ })).toBeNull();
     rerender(<ul><EventCard event={ev({ photoCount: 1 })} onOpen={() => {}} /></ul>);
     expect(screen.getByRole("button", { name: "1 photo of Slayer. Open photos" })).toBeTruthy();
-    for (const el of [<EventCard event={ev({ past: false })} onOpen={() => {}} />, <EventCard event={ev()} onOpen={() => {}} sharedBy="Ana" />, <EventCard event={ev()} />]) {
+    for (const el of [<EventCard event={ev({ past: false })} onOpen={() => {}} />, <EventCard event={ev()} />]) {
       rerender(<ul>{el}</ul>);
       expect(screen.queryByRole("button", { name: /Open photos/ })).toBeNull();
     }

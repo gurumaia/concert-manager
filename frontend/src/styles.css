@@ -554,3 +554,10 @@ main.rv-public { max-width: none; margin: 0; padding: 0; min-height: 100dvh; dis
 .rv-cta { position: absolute; left: 7cqw; right: 7cqw; bottom: 25cqw; z-index: 6; text-align: center; text-decoration: none; background: var(--red); color: #fff; font-size: 6cqw; padding: 3.2cqw 4cqw; border-radius: 3cqw; box-shadow: 0 3px 8px rgba(0, 0, 0, .25); }
 .rv-cta:hover { filter: brightness(1.06); }
 .rv-cta:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+/* A show someone else tagged you on: a stripe on the card, and a pill only while you have not answered. */
+.card.ev.tagged { border-left: 4px solid var(--attended); }
+.tagged-pill { font-size: .75rem; font-weight: 600; border-radius: 999px; padding: .05rem .6rem; background: var(--attended-bg); color: var(--attended); white-space: nowrap; }
+.tag-losses { display: grid; gap: .5rem; margin: 0 0 1rem; }
+.tag-loss { border: 1px solid var(--border); border-left: 4px solid var(--attended); border-radius: var(--radius); background: var(--surface); padding: .7rem .9rem; display: grid; gap: .4rem; }
+.tag-loss .actions { display: flex; gap: .5rem; flex-wrap: wrap; }

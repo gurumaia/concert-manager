@@ -24,10 +24,9 @@ describe("EventCard photo drop", () => {
     expect(uploadPhoto).toHaveBeenCalledWith("e1", expect.any(File));
   });
 
-  it("ignores drops on upcoming shows, shared shows and cards that cannot open", async () => {
+  it("ignores drops on upcoming shows and cards that cannot open", async () => {
     for (const el of [
       <EventCard event={ev({ past: false })} onOpen={() => {}} />,
-      <EventCard event={ev()} onOpen={() => {}} sharedBy="Ana" />,
       <EventCard event={ev()} />,
     ]) {
       const { container, unmount } = render(<ul>{el}</ul>);

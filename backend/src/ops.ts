@@ -45,6 +45,7 @@ export const ops: Op[] = [
     name: "list_events", title: "List events", readOnly: true,
     description:
       "List events (sorted by date) with venue and the user's RSVP inline. Filter by date range, venue, city, text (matches title, lineup, genre, venue), sale status, or RSVP state. " +
+      "Shows other people tagged the user on are included, marked `tagged: true` (their details are read-only; the RSVP, score and photos are the user's own), with `taggedBy` naming who tagged them. " +
       "rsvp='none' returns events the user has not decided on yet: use it to present candidates to choose from. rsvp='going' is shows still ahead; rsvp='attended' is shows they were going to whose date has passed (every event also carries `past` and `attended` flags). Defaults to 100 results; use offset to page.",
     input: z.object({
       from: DateStr.optional(), to: DateStr.optional(),
@@ -55,7 +56,7 @@ export const ops: Op[] = [
       sort: z.enum(["asc", "desc"]).optional(),
       limit: z.number().int().min(1).max(500).optional(), offset: z.number().int().min(0).optional(),
     }),
-    run: (s, c, i) => s.listEvents(c, i),
+    run: (s, c, i) => s.listEvents(c, { ...i, tagged: true }),
   }),
   op({
     name: "get_event", title: "Get event", readOnly: true,
@@ -263,6 +264,18 @@ export const ops: Op[] = [
       "so they see them under 'shared with me' (now, or once they sign up). Unlinking stops the sharing for those shows.",
     input: z.object({ name: z.string().min(1).describe("The person's name as used in 'Going with'"), email: z.string().email().nullable() }),
     run: (s, c, i) => s.setPersonEmail(c, i.name, i.email),
+  }),
+  op({
+    name: "list_tag_losses", title: "Shows I was taken off of", readOnly: true,
+    description: "Shows the user answered (RSVP, score or photos) after being tagged, which the owner has since taken them off or deleted. Each can be kept as the user's own show or let go (resolve_tag_loss).",
+    input: z.object({}),
+    run: (s, c) => s.listTagLosses(c),
+  }),
+  op({
+    name: "resolve_tag_loss", title: "Keep or drop a show I was taken off of",
+    description: "keep=true makes the show one of the user's own, with their RSVP, score and photos. keep=false deletes their RSVP, score and photos of it.",
+    input: z.object({ ownerId: id, eventId: id, keep: z.boolean() }),
+    run: (s, c, i) => s.resolveTagLoss(c, i.ownerId, i.eventId, i.keep),
   }),
   op({
     name: "list_shared_with_me", title: "Shared with me", readOnly: true,

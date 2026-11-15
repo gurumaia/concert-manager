@@ -54,6 +54,7 @@ export type SetlistActResult = { act: string; status: "found" | "not_found" | "k
 export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; past: boolean; attended: boolean; /** Photos you can see on this show (yours, or the ones shared with you). */ photoCount: number;
   /** The best score of the show's acts (or the overall score when no act has one); what lists show. Only for shows you attended. */ topScore?: number;
   /** A show someone else owns that you were tagged on: its details are theirs (read-only), the RSVP, score and photos are yours. */ tagged?: boolean;
+  /** On a tagged show that is over: you have not answered, and since the person who tagged you went, it counts as attended (the RSVP shown is not stored yet). */ impliedAttended?: boolean;
   /** Who tagged you on this show (also set on your own copy of the same show when it matches). */ taggedBy?: Array<{ id: string; name?: string; email?: string }> };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
@@ -506,18 +507,18 @@ export class Service {
 
   async getEvent(ctx: Ctx, id: string): Promise<EventView> {
     const own = await this.repo.getEvent(ctx.userId, id);
-    const tagged = (await this.taggedShows(ctx));
     if (own) {
+      const tagged = await this.taggedShows(ctx);
       const view = await this.view(ctx, own);
       const by = tagged.filter((t) => this.sameShow(view, view.venue, t.event, t.venue)).map((t) => t.tagger);
       return by.length ? { ...view, taggedBy: by } : view;
     }
-    const t = tagged.find((x) => x.event.id === id);
+    const t = (await this.taggedShows(ctx, id))[0];
     if (!t) throw new AppError("not_found", `Event ${id} not found`);
     const email = (await this.ensureUser(ctx)).email?.toLowerCase();
     const [rsvp, mine, theirs] = await Promise.all([this.repo.getRsvp(ctx.userId, id), this.repo.listPhotos(ctx.userId, id), this.repo.listPhotos(t.tagger.id, id)]);
     const shared = theirs.filter((p) => !!email && p.sharedWith.includes(email)).length;
-    return { ...this.toView(t.event, t.venue, rsvp ?? null, (v) => this.todayAt(v), mine.length + shared), tagged: true, taggedBy: [t.tagger] };
+    return this.taggedView(t, rsvp ?? null, (v) => this.todayAt(v), mine.length + shared);
   }
 
   // ----------------------------------------------------------- tagged shows
@@ -525,22 +526,34 @@ export class Service {
    * Shows other people own that I can see because they tagged me (their RSVP or photos are shared with my email).
    * Their details stay theirs and read-only; my RSVP, score and photos on them live under my account, keyed by their event id.
    */
-  private async taggedShows(ctx: Ctx): Promise<Array<{ event: ShowEvent; venue: Venue | null; tagger: { id: string; name?: string; email?: string } }>> {
+  private async taggedShows(ctx: Ctx, onlyEventId?: string): Promise<Array<{ event: ShowEvent; venue: Venue | null; tagger: { id: string; name?: string; email?: string }; ownerWent: boolean }>> {
     const email = (await this.ensureUser(ctx)).email;
     if (!email) return [];
-    const refs = [...(await this.repo.listSharedWith(email)), ...(await this.repo.listPhotosSharedWith(email))];
-    const seen = new Set<string>();
-    const out: Awaited<ReturnType<Service["taggedShows"]>> = [];
-    for (const { ownerId, eventId } of refs) {
-      const key = `${ownerId}#${eventId}`;
-      if (ownerId === ctx.userId || seen.has(key)) continue;
-      seen.add(key);
-      const event = await this.repo.getEvent(ownerId, eventId);
-      if (!event) continue;
-      const [venue, owner] = await Promise.all([event.venueId ? this.repo.getVenue(ownerId, event.venueId) : undefined, this.repo.getUser(ownerId)]);
-      out.push({ event, venue: venue ?? null, tagger: { id: ownerId, name: owner?.name, email: owner?.email } });
-    }
-    return out;
+    const [rsvpRefs, photoRefs] = await Promise.all([this.repo.listSharedWith(email), this.repo.listPhotosSharedWith(email)]);
+    const refs = new Map<string, { ownerId: string; eventId: string }>();
+    for (const r of [...rsvpRefs, ...photoRefs]) if (r.ownerId !== ctx.userId && (!onlyEventId || r.eventId === onlyEventId)) refs.set(`${r.ownerId}#${r.eventId}`, { ownerId: r.ownerId, eventId: r.eventId });
+    // One round of reads per show, all shows at once: a friend can tag you on dozens of shows.
+    const owners = new Map<string, Promise<UserProfile | undefined>>();
+    const ownerOf = (id: string) => { if (!owners.has(id)) owners.set(id, this.repo.getUser(id)); return owners.get(id)!; };
+    const found = await Promise.all([...refs.values()].map(async ({ ownerId, eventId }) => {
+      const [event, theirRsvp, owner] = await Promise.all([this.repo.getEvent(ownerId, eventId), this.repo.getRsvp(ownerId, eventId), ownerOf(ownerId)]);
+      if (!event) return undefined;
+      const venue = event.venueId ? await this.repo.getVenue(ownerId, event.venueId) : undefined;
+      const ownerWent = theirRsvp?.status === "going" || theirRsvp?.status === "attended";
+      return { event, venue: venue ?? null, tagger: { id: ownerId, name: owner?.name, email: owner?.email }, ownerWent };
+    }));
+    return found.filter((x): x is NonNullable<typeof x> => !!x);
+  }
+
+  /**
+   * My view of a show someone tagged me on. Until I answer, a show that is over and that they went to counts as one I went to
+   * (they listed me under "Going with"): it is in my history, and "Didn't go" is how I say otherwise. Upcoming ones wait for my answer.
+   */
+  private taggedView(t: { event: ShowEvent; venue: Venue | null; tagger: { id: string; name?: string; email?: string }; ownerWent: boolean }, mine: Rsvp | null, today: (v?: Venue) => string, photoCount: number): EventView {
+    const past = t.event.date < today(t.venue ?? undefined);
+    const implied = !mine && past && t.ownerWent;
+    const rsvp: Rsvp | null = implied ? { eventId: t.event.id, status: "going", sharedWith: [], createdAt: t.event.createdAt, updatedAt: t.event.updatedAt } : mine;
+    return { ...this.toView(t.event, t.venue, rsvp, today, photoCount), tagged: true, taggedBy: [t.tagger], ...(implied ? { impliedAttended: true } : {}) };
   }
 
   /** The same concert on two lists: same day, and the same title or the same venue (name on that day, and city). */
@@ -551,12 +564,12 @@ export class Service {
   }
 
   /** An event I can act on: mine, or a show I was tagged on (then only my RSVP, score and photos are mine to change). */
-  private async eventForMe(ctx: Ctx, id: string): Promise<{ event: ShowEvent; ownerId: string; tagged: boolean }> {
+  private async eventForMe(ctx: Ctx, id: string): Promise<{ event: ShowEvent; ownerId: string; tagged: boolean; ownerWent: boolean }> {
     const own = await this.repo.getEvent(ctx.userId, id);
-    if (own) return { event: own, ownerId: ctx.userId, tagged: false };
-    const t = (await this.taggedShows(ctx)).find((x) => x.event.id === id);
+    if (own) return { event: own, ownerId: ctx.userId, tagged: false, ownerWent: false };
+    const t = (await this.taggedShows(ctx, id))[0];
     if (!t) throw new AppError("not_found", `Event ${id} not found`);
-    return { event: t.event, ownerId: t.tagger.id, tagged: true };
+    return { event: t.event, ownerId: t.tagger.id, tagged: true, ownerWent: t.ownerWent };
   }
 
   /**
@@ -784,12 +797,19 @@ export class Service {
     let out = events.map<EventView>((e) => this.toView(e, (e.venueId && vMap.get(e.venueId)) || null, rMap.get(e.id) ?? null, todayIn, photoCounts.get(e.id) ?? 0));
     if (f.tagged) {
       const email = (await this.ensureUser(ctx)).email?.toLowerCase();
+      const fresh: typeof out = [];
       for (const t of await this.taggedShows(ctx)) {
-        const same = out.find((o) => this.sameShow(o, o.venue, t.event, t.venue));
+        const same = [...out, ...fresh].find((o) => this.sameShow(o, o.venue, t.event, t.venue));
         if (same) { same.taggedBy = [...(same.taggedBy ?? []), t.tagger]; continue; } // already on my list (or another friend tagged it too)
-        const shared = email ? (await this.repo.listPhotos(t.tagger.id, t.event.id)).filter((p) => p.sharedWith.includes(email)).length : 0;
-        out.push({ ...this.toView(t.event, t.venue, rMap.get(t.event.id) ?? null, todayIn, (photoCounts.get(t.event.id) ?? 0) + shared), tagged: true, taggedBy: [t.tagger] });
+        fresh.push(this.taggedView(t, rMap.get(t.event.id) ?? null, todayIn, photoCounts.get(t.event.id) ?? 0));
       }
+      // The photos each tagger shared with me, counted for all shows at once.
+      await Promise.all(fresh.map(async (v) => {
+        if (!email) return;
+        const owner = v.taggedBy![0]!.id;
+        v.photoCount = (v.photoCount ?? 0) + (await this.repo.listPhotos(owner, v.id)).filter((p) => p.sharedWith.includes(email)).length;
+      }));
+      out.push(...fresh);
     }
     out = out.filter((e) => {
       if (f.from && e.date < f.from) return false;
@@ -905,8 +925,10 @@ export class Service {
 
   /** Change only the scores of an attended show (no calendar sync, no conflict check): cheap enough to call on every slider move. */
   async setScores(ctx: Ctx, eventId: string, input: { score?: number | null; actScores?: Record<string, number | null> | null }) {
-    const { event, ownerId } = await this.eventForMe(ctx, eventId);
-    const prev = await this.repo.getRsvp(ctx.userId, eventId);
+    const { event, ownerId, tagged, ownerWent } = await this.eventForMe(ctx, eventId);
+    let prev = await this.repo.getRsvp(ctx.userId, eventId);
+    // A past show someone tagged me on, that they went to, already counts as attended: scoring it stores that answer.
+    if (!prev && tagged && ownerWent) prev = { eventId, status: "going", sharedWith: [], createdAt: this.now(), updatedAt: this.now() };
     if (!prev) throw new AppError("not_found", "Mark the show as going first, then score it.");
     const rsvp: Rsvp = { ...prev, status: prev.status === "attended" ? "going" : prev.status, updatedAt: this.now() };
     await this.applyScores(ctx, event, rsvp, input.score, input.actScores, ownerId);
@@ -1257,7 +1279,7 @@ export class Service {
   private async buildReview(ownerId: string, recipe: ReviewRecipe, showNames: boolean): Promise<ReviewData> {
     if (recipe.from > recipe.to) throw new AppError("invalid", "The start date is after the end date");
     const owner: Ctx = { userId: ownerId };
-    const { events } = await this.listEvents(owner, { from: recipe.from, to: recipe.to, rsvp: "attended", limit: 100000, sort: "asc" });
+    const { events } = await this.listEvents(owner, { from: recipe.from, to: recipe.to, rsvp: "attended", limit: 100000, sort: "asc", tagged: true });
     const wanted = [...new Set((recipe.people ?? []).map(personKey).filter(Boolean))];
     const withPeople = events.filter((e) => {
       if (!wanted.length) return true;

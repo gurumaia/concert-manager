@@ -78,7 +78,9 @@ export function RsvpPanel({ event, onChanged, tagged }: { event: EventView; onCh
         ))}
       </div>
       {!r && <p className="muted small">{past ? "Pick Attended if you went. It will show up in your history." : "Not decided yet. Going also covers “bought tickets” and adds the show to your calendar."}</p>}
-      {r?.status === "going" && past && <p className="muted small">Counted as a show you went to. If you did not make it, choose Didn’t go.</p>}
+      {r?.status === "going" && past && <p className="muted small">{event.impliedAttended
+        ? `Counted as a show you went to, because ${(event.taggedBy ?? []).map((t) => t.name ?? t.email).join(", ") || "the person who tagged you"} listed you as going with them. If you did not make it, choose Didn’t go.`
+        : "Counted as a show you went to. If you did not make it, choose Didn’t go."}</p>}
 
       {msg?.warnings.map((w) => <p key={w} role="status" className="warn">⚠ {w}</p>)}
       {msg?.calendar && <CalendarNote c={msg.calendar} />}

@@ -15,10 +15,11 @@ function suite(kind: RepoKind) {
   const list = async (s: Awaited<ReturnType<typeof tagged>>, who: "me" | "her" = "her") => (await s.svc.listEvents(s[who], { tagged: true, limit: 500 })).events;
 
   describe(`tagged shows in my own lists [${kind}]`, () => {
-    it("a tagged show appears in the tagged person's list, unanswered, with who tagged them; plain lists leave it out", async () => {
-      const s = await tagged();
+    it("an upcoming tagged show appears in the tagged person's list, unanswered, with who tagged them; plain lists leave it out", async () => {
+      const s = await tagged({ date: "2031-06-01" });
       const [t] = await list(s);
-      expect(t).toMatchObject({ id: s.ev.id, tagged: true, rsvp: null, taggedBy: [{ id: s.me.userId, email: "me@example.com" }] });
+      expect(t).toMatchObject({ id: s.ev.id, tagged: true, rsvp: null, past: false, taggedBy: [{ id: s.me.userId, email: "me@example.com" }] });
+      expect(t?.impliedAttended).toBeUndefined();
       expect((await s.svc.listEvents(s.her, { limit: 500 })).events).toHaveLength(0);
       expect((await s.svc.getEvent(s.her, s.ev.id)).tagged).toBe(true);
       expect(await list(s, "me")).toHaveLength(1); // the owner's own show, not tagged
@@ -38,7 +39,34 @@ function suite(kind: RepoKind) {
       await s.svc.setScores(s.her, s.ev.id, { score: 9 });
       expect((await s.svc.getEvent(s.her, s.ev.id)).topScore).toBe(9);
       await s.svc.removeRsvp(s.her, s.ev.id);
-      expect((await s.svc.getEvent(s.her, s.ev.id)).rsvp).toBeNull();
+      expect((await s.svc.getEvent(s.her, s.ev.id))).toMatchObject({ attended: true, impliedAttended: true }); // back to the default
+    });
+
+    it("a past show the tagger went to counts as attended until you say otherwise: in your history, scorable, and 'Didn't go' takes it out", async () => {
+      const s = await tagged();
+      const [t] = await list(s);
+      expect(t).toMatchObject({ id: s.ev.id, tagged: true, attended: true, impliedAttended: true, rsvp: { status: "going" } });
+      expect((await s.svc.listEvents(s.her, { tagged: true, rsvp: "attended" })).events.map((e) => e.id)).toEqual([s.ev.id]);
+      expect((await s.svc.getEvent(s.her, s.ev.id)).impliedAttended).toBe(true);
+      await s.svc.setScores(s.her, s.ev.id, { score: 7.5 }); // scoring stores the answer
+      expect((await s.svc.getEvent(s.her, s.ev.id))).toMatchObject({ topScore: 7.5, rsvp: { status: "going" } });
+      expect((await s.svc.getEvent(s.her, s.ev.id)).impliedAttended).toBeUndefined();
+      await s.svc.setRsvp(s.her, s.ev.id, { status: "skipped" });
+      expect((await s.svc.listEvents(s.her, { tagged: true, rsvp: "attended" })).events).toHaveLength(0);
+      expect((await list(s))[0]).toMatchObject({ attended: false, rsvp: { status: "skipped" } });
+    });
+
+    it("a past show the tagger skipped is not counted for you", async () => {
+      const s = await tagged();
+      await s.svc.setRsvp(s.me, s.ev.id, { status: "skipped", companions: ["Her <her@example.com>"] });
+      const [t] = await list(s);
+      expect(t).toMatchObject({ tagged: true, attended: false, rsvp: null });
+    });
+
+    it("your recap counts the past shows you were tagged on", async () => {
+      const s = await tagged();
+      const r = await s.svc.yearReview(s.her, { from: "2020-01-01", to: "2020-12-31" } as any);
+      expect(r.shows.map((x) => x.title)).toEqual([friedman.title]);
     });
 
     it("the details stay the owner's: a tagged person cannot edit or delete the show", async () => {

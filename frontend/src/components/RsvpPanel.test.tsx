@@ -21,6 +21,12 @@ describe("RsvpPanel on a show someone tagged you on", () => {
     expect(op).not.toHaveBeenCalledWith("list_people");
   });
 
+  it("explains why a past show you were tagged on counts as attended", () => {
+    render(<RsvpPanel event={event({ tagged: true, impliedAttended: true, taggedBy: [{ id: "o", name: "Gustavo" }] })} onChanged={() => {}} tagged />);
+    expect(screen.getByText(/because Gustavo listed you as going with them/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Attended" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("saves just the status and notes", async () => {
     op.mockResolvedValue({ rsvp: { ...rsvp, notes: "great" }, warnings: [], calendar: { status: "skipped" } });
     render(<RsvpPanel event={event({ tagged: true })} onChanged={() => {}} tagged />);

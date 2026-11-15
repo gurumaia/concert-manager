@@ -55,6 +55,7 @@ export type EventView = ShowEvent & { venue: Venue | null; rsvp: Rsvp | null; pa
   /** The best score of the show's acts (or the overall score when no act has one); what lists show. Only for shows you attended. */ topScore?: number;
   /** A show someone else owns that you were tagged on: its details are theirs (read-only), the RSVP, score and photos are yours. */ tagged?: boolean;
   /** On a tagged show that is over: you have not answered, and since the person who tagged you went, it counts as attended (the RSVP shown is not stored yet). */ impliedAttended?: boolean;
+  /** Other people who shared their own photos of this show with you (for example someone you tagged on your show). */ photosFrom?: Array<{ id: string; name?: string; email?: string }>;
   /** Who tagged you on this show (also set on your own copy of the same show when it matches). */ taggedBy?: Array<{ id: string; name?: string; email?: string }> };
 type MatchedBy = "venue_and_date" | "title_and_date" | "title_and_date_venue_changed";
 type VenueNote = { given: string; matched: string; id: string; how: "similar" };
@@ -508,10 +509,15 @@ export class Service {
   async getEvent(ctx: Ctx, id: string): Promise<EventView> {
     const own = await this.repo.getEvent(ctx.userId, id);
     if (own) {
-      const tagged = await this.taggedShows(ctx);
+      const [tagged, friends] = await Promise.all([this.taggedShows(ctx), this.friendPhotos(ctx, id)]);
       const view = await this.view(ctx, own);
       const by = tagged.filter((t) => this.sameShow(view, view.venue, t.event, t.venue)).map((t) => t.tagger);
-      return by.length ? { ...view, taggedBy: by } : view;
+      const from = friends.get(id) ?? [];
+      return {
+        ...view,
+        ...(by.length ? { taggedBy: by } : {}),
+        ...(from.length ? { photosFrom: from.map((x) => x.owner), photoCount: view.photoCount + from.reduce((n, x) => n + x.count, 0) } : {}),
+      };
     }
     const t = (await this.taggedShows(ctx, id))[0];
     if (!t) throw new AppError("not_found", `Event ${id} not found`);
@@ -522,6 +528,32 @@ export class Service {
   }
 
   // ----------------------------------------------------------- tagged shows
+  /**
+   * Photos other people shared with me that they attached to one of MY shows (I tagged them, they added theirs and shared them back).
+   * By event id: who shared and how many. `onlyEventId` narrows it to one show.
+   */
+  private async friendPhotos(ctx: Ctx, onlyEventId?: string): Promise<Map<string, Array<{ owner: { id: string; name?: string; email?: string }; count: number }>>> {
+    const email = (await this.ensureUser(ctx)).email;
+    const out = new Map<string, Array<{ owner: { id: string; name?: string; email?: string }; count: number }>>();
+    if (!email) return out;
+    const counts = new Map<string, number>(); // ownerId#eventId -> photos
+    for (const r of await this.repo.listPhotosSharedWith(email)) {
+      if (r.ownerId === ctx.userId || (onlyEventId && r.eventId !== onlyEventId)) continue;
+      const k = `${r.ownerId}#${r.eventId}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    if (!counts.size) return out;
+    const keys = [...counts.keys()].map((k) => { const i = k.indexOf("#"); return { ownerId: k.slice(0, i), eventId: k.slice(i + 1) }; });
+    const mine = await Promise.all(keys.map(async (k) => !!(await this.repo.getEvent(ctx.userId, k.eventId))));
+    const users = new Map<string, Promise<UserProfile | undefined>>();
+    for (const [i, k] of keys.entries()) {
+      if (!mine[i]) continue; // a show they own: that is a tagged show, handled by taggedShows
+      if (!users.has(k.ownerId)) users.set(k.ownerId, this.repo.getUser(k.ownerId));
+      const u = await users.get(k.ownerId)!;
+      out.set(k.eventId, [...(out.get(k.eventId) ?? []), { owner: { id: k.ownerId, name: u?.name, email: u?.email }, count: counts.get(`${k.ownerId}#${k.eventId}`)! }]);
+    }
+    return out;
+  }
   /**
    * Shows other people own that I can see because they tagged me (their RSVP or photos are shared with my email).
    * Their details stay theirs and read-only; my RSVP, score and photos on them live under my account, keyed by their event id.
@@ -810,6 +842,14 @@ export class Service {
         v.photoCount = (v.photoCount ?? 0) + (await this.repo.listPhotos(owner, v.id)).filter((p) => p.sharedWith.includes(email)).length;
       }));
       out.push(...fresh);
+      // Photos others shared with me on shows of my OWN (someone I tagged adding theirs): counted on my card, shown in my drawer.
+      const mineById = new Map(out.filter((o) => !o.tagged).map((o) => [o.id, o]));
+      for (const [eventId, from] of await this.friendPhotos(ctx)) {
+        const v = mineById.get(eventId);
+        if (!v) continue;
+        v.photosFrom = from.map((x) => x.owner);
+        v.photoCount = (v.photoCount ?? 0) + from.reduce((n, x) => n + x.count, 0);
+      }
     }
     out = out.filter((e) => {
       if (f.from && e.date < f.from) return false;

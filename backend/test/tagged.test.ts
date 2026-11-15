@@ -93,6 +93,21 @@ function suite(kind: RepoKind) {
       expect(await s.svc.listPhotos(s.me, s.ev.id)).toHaveLength(0);
       expect((await list(s))[0]?.photoCount).toBe(1);
     });
+
+    it("photos they share back with the owner show up on the owner's own show, and stop when unshared", async () => {
+      const s = await tagged();
+      const p = await s.svc.addPhotoBase64(s.her, s.ev.id, Buffer.from(JPEG).toString("base64"));
+      expect((await s.svc.getEvent(s.me, s.ev.id)).photosFrom).toBeUndefined(); // private until shared
+      await s.svc.sharePhotos(s.her, s.ev.id, ["me@example.com"], [p.id]);
+      const mine = await s.svc.getEvent(s.me, s.ev.id);
+      expect(mine.photosFrom).toEqual([expect.objectContaining({ id: s.her.userId })]);
+      expect(mine.photoCount).toBe(1);
+      expect((await list(s, "me"))[0]).toMatchObject({ photoCount: 1, photosFrom: [expect.objectContaining({ id: s.her.userId })] });
+      expect((await s.svc.listPhotos(s.me, s.ev.id, s.her.userId)).map((x) => x.id)).toEqual([p.id]);
+      expect(await list(s, "me")).toHaveLength(1); // still one show, not a tagged duplicate
+      await s.svc.unsharePhotos(s.her, s.ev.id, ["me@example.com"]);
+      expect((await s.svc.getEvent(s.me, s.ev.id)).photosFrom).toBeUndefined();
+    });
   });
 
   describe(`being taken off a show I answered [${kind}]`, () => {

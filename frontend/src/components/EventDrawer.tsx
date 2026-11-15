@@ -98,6 +98,7 @@ export function EventDrawer({ eventId, initial, venues, focus, onClose, onChange
       <SetlistSection event={event} readOnly={tagged} onUpdated={(e) => { setEvent(e); onChanged(); }} />
 
       {tagged && (event.taggedBy ?? []).map((t) => <PhotosSection key={t.id} event={event} ownerId={t.id} readOnly sharedBy={t.name ?? t.email} />)}
+      {!tagged && (event.photosFrom ?? []).map((t) => <PhotosSection key={t.id} event={event} ownerId={t.id} readOnly sharedBy={t.name ?? t.email} />)}
       {event.past && <PhotosSection event={event} scrollTo={focus === "photos"} onChange={onChanged} />}
 
       <RsvpPanel event={event} onChanged={reload} tagged={tagged} />
